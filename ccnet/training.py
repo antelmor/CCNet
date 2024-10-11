@@ -105,7 +105,6 @@ class BasicTraining:
 class Random(BasicTraining):
 
     def __init__(self, **kwargs):
-
         super().__init__(**kwargs)
 
     def generate(self):
@@ -115,6 +114,31 @@ class Random(BasicTraining):
     def run(self, batch_size=5, **kwargs):
 
         self.inputs_shape = (batch_size, 2*self.hamiltonian.size - self.hamiltonian._diagonal_index)
+        super().run(batch_size=batch_size, **kwargs)
+
+class Step(BasicTraining):
+
+    def __init__(self, step_size=10, **kwargs):
+
+        super().__init__(**kwargs)
+        self.iteration = 0
+        self.step_size = step_size
+
+    def generate(self):
+
+        i = self.iteration // self.step_size + 1
+        shape = (self.inputs_shape[0], i)
+        coefficients = torch.zeros(self.inputs_shape, dtype=torch.float64, device=self.device)
+        coefficients[:, :i] = 2*torch.rand(shape, dtype=torch.float64, device=self.device) - 1
+        self.iteration += 1
+
+        return coefficients
+
+    def run(self, batch_size=5, **kwargs):
+
+        size = 2*self.hamiltonian.size - self.hamiltonian._diagonal_index
+        self.inputs_shape = (batch_size, size)
+        kwargs['training_steps'] = size*self.step_size - 1
         super().run(batch_size=batch_size, **kwargs)
 
 class Game(BasicTraining):

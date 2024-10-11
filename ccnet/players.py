@@ -15,23 +15,15 @@ class Player(nn.Module):
         num_second_pairs = comb(num_first_pairs, 2)
         self.size = 2*num_second_pairs + 3*num_first_pairs + num_states
 
-        self.conv1 = nn.Conv1d(1, 2*num_states, kernel_size=3, stride=1, padding=1)
-        self.conv2 = nn.Conv1d(2*num_states, 4*num_states, kernel_size=3, stride=1, padding=1)
-
-        self.fc1 = nn.Linear(4*num_states*self.size, self._hidden_size)
-        self.fc2 = nn.Linear(self._hidden_size, self.size)
+        self.fc1 = nn.Linear(self.size, self._hidden_size)
+        self.fc2 = nn.Linear(self._hidden_size, self._hidden_size)
+        self.fc3 = nn.Linear(self._hidden_size, self.size)
 
     def forward(self, x):
         
-        x = x.reshape(-1, 1, self.size)
-
-        x = torch.relu(self.conv1(x))
-        x = torch.relu(self.conv2(x))
-
-        x = x.view(-1, 4*self.num_states*self.size)
-        
         x = torch.relu(self.fc1(x))
-        coefficients = self.fc2(x)
+        x = torch.relu(self.fc2(x))
+        coefficients = self.fc3(x)
 
         return coefficients
 
@@ -61,7 +53,7 @@ class Solver(Player):
         super(Solver, self).__init__(num_states, hidden_size=hidden_size)
         self.num_sets = num_sets
 
-        self.fc2 = nn.Linear(self._hidden_size, num_sets*self.size)
+        self.fc3 = nn.Linear(self._hidden_size, num_sets*self.size)
 
     def forward(self, x):
         x = super(Solver, self).forward(x)
