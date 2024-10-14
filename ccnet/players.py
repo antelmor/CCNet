@@ -3,7 +3,7 @@ from torch import nn
 from math import comb
 
 from .utils import get_HF_state
-from .hamiltonian import HermitianOp, AntiHermitianOp
+from .operator import HermitianOp, AntiHermitianOp
 
 class Player(nn.Module):
 

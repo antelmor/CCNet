@@ -2,7 +2,7 @@ import torch
 
 from .utils import get_HF_state
 from .players import Solver, Proposer
-from .hamiltonian import HermitianOp, AntiHermitianOp
+from .operator import HermitianOp, AntiHermitianOp
 
 class BasicTraining:
 

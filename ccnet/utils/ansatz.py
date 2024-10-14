@@ -1,5 +1,5 @@
 import torch
-from ..hamiltonian import AntiHermitianOp
+from ..operator import AntiHermitianOp
 
 class Ansatz(AntiHermitianOp):
 
