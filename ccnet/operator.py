@@ -195,8 +195,8 @@ class HermitianOp(FermionOp):
 
         the_coefficients = self._get_valid_coefficients(values)
 
-        ireal = self._diagonal_index
-        if the_coefficients[:, :ireal].imag.any():
+        ir = self._diagonal_index
+        if the_coefficients[:, :ir].imag.any():
             raise ValueError(
                 f"The first {ir} coefficients must be real for the operator to be Hermitian."
             )
@@ -238,12 +238,13 @@ class AntiHermitianOp(HermitianOp):
 
         the_coefficients = self._get_valid_coefficients(values)
 
-        iimaginary = self._diagonal_index
-        if the_coefficients[:, :iimaginary].real.any():
+        ii = self._diagonal_index
+        if the_coefficients[:, :ii].imag.any():
             raise ValueError(
-                f"The first {ir} coefficients must be imaginary for the operator to be AntiHermitian."
+                f"The first {ii} coefficients must be real for the operator to be AntiHermitian."
             )
 
+        the_coefficients[:, :ii] *= 1j
         self._coefficients = the_coefficients
 
     def update_from_flat_coefficients(self, values):
