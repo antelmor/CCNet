@@ -1,8 +1,9 @@
 import torch
 from torch import nn
 from math import comb
-from utils import get_HF_state
-from hamiltonian import HermitianOp, AntiHermitianOp
+
+from .utils import get_HF_state
+from .hamiltonian import HermitianOp, AntiHermitianOp
 
 class Player(nn.Module):
 
@@ -49,18 +50,18 @@ class Proposer(Player):
 
 class Solver(Player):
 
-    def __init__(self, num_states, num_sets=1, hidden_size=128):
+    def __init__(self, num_states, pool_size=5, hidden_size=128):
         super(Solver, self).__init__(num_states, hidden_size=hidden_size)
-        self.num_sets = num_sets
+        self.pool_size = pool_size
 
-        self.fc3 = nn.Linear(self._hidden_size, num_sets*self.size)
+        self.fc3 = nn.Linear(self._hidden_size, pool_size*self.size)
 
     def forward(self, x):
         x = super(Solver, self).forward(x)
 
-        return x.reshape(-1, self.num_sets, self.size)
+        return x.reshape(-1, self.pool_size, self.size)
 
-    def run_uccsd(self, hamiltonian, num_electrons=1):
+    def run_vqe(self, hamiltonian, num_electrons=1):
 
         if hamiltonian.num_spin_orbitals != self.num_states:
             raise ValueError(

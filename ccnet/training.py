@@ -1,7 +1,8 @@
 import torch
-from players import Solver, Proposer
-from utils import get_HF_state
-from hamiltonian import HermitianOp, AntiHermitianOp
+
+from .utils import get_HF_state
+from .players import Solver, Proposer
+from .hamiltonian import HermitianOp, AntiHermitianOp
 
 class BasicTraining:
 
