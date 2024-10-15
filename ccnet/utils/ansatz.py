@@ -7,11 +7,12 @@ class Ansatz(AntiHermitianOp):
         super().__init__(num_spin_orbitals, batch_size=num_parameters, device=device)
        
         self.num_parameters = num_parameters
-        self._tensor = self.to_tensor()
 
-    @property
-    def unitary(self):
-        return self._unitary
+    @AntiHermitianOp.coefficients.setter
+    def coefficients(self, values):
+
+        AntiHermitianOp.coefficients.fset(self, values)
+        self._tensor = self.to_tensor()
 
     def get_propagator(self, angles):
 
