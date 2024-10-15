@@ -7,7 +7,7 @@ class Ansatz(AntiHermitianOp):
         super().__init__(num_spin_orbitals, batch_size=num_parameters, device=device)
        
         self.num_parameters = num_parameters
-        self._unitary = torch.matrix_exp( self.to_tensor() )
+        self._tensor = self.to_tensor()
 
     @property
     def unitary(self):
@@ -15,7 +15,7 @@ class Ansatz(AntiHermitianOp):
 
     def get_propagator(self, angles):
 
-        U = angles[:, :, None, None] * self._unitary
+        U = torch.matrix_exp(angles[:, :, None, None] * self._tensor)
 
         propagator = U[:, 0]
         for mat in torch.unbind(U[:, 1:], dim=1):
