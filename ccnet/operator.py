@@ -28,7 +28,7 @@ def get_binaries(*label):
 
 class FermionOp:
 
-    def __init__(self, labels, num_spin_orbitals=-1, batch_size=1, device=None):
+    def __init__(self, labels, num_spin_orbitals=1, batch_shape=(), device=None):
 
         if device is None:
             device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
@@ -47,15 +47,23 @@ class FermionOp:
         if num_spin_orbitals == -1:
             num_spin_orbitals = max( max(the_labels) )
 
-        if not isinstance(num_spin_orbitals, int) or not isinstance(batch_size, int):
-            raise TypeError("Keyword arguments must be positive integers.")
-        elif num_spin_orbitals < 1 or batch_size < 1:
-            raise ValueError("Keyword arguments must be positive integers.")
+        if not isinstance(num_spin_orbitals, int):
+            raise TypeError("'num_spin_orbitals' must be a positive integer.")
+        elif num_spin_orbitals < 1:
+            raise ValueError("'num_spin_orbitals' must be a positive integer.")
+
+        try:
+            batch_shape = tuple(int(n) for n in batch_shape)
+        except (TypeError, ValueError):
+            raise type(err)("'batch_shape' must be an iterable of integers")
+        else:
+            if any(n < 1 for n in batch_shape):
+                raise ValueError("The integers of 'batch_shape' must be positive.")
 
         indices = list(range(num_spin_orbitals)) 
 
         size = len(the_labels)
-        shape = (batch_size, size)
+        shape = (*batch_shape, size)
         self.num_spin_orbitals = num_spin_orbitals
 
         self._size = size
@@ -116,25 +124,23 @@ class FermionOp:
             raise type(err)("The coefficients must be a tensor like object with numerical data.")
 
         num_coefficients = self._coefficients.shape[-1]
-        if coefficients.ndim == 1:
-            coefficients = coefficients.reshape(1, -1)
-        if coefficients.shape[-1] != num_coefficients or coefficients.ndim != 2:
+        if coefficients.shape[-1] != num_coefficients:
             raise ValueError(
-                f"The coefficients must be of shape ({num_coefficients},) or (n, {num_coefficients})"
+                f"The coefficients must be of shape (...,{num_coefficients})"
             )
 
         return coefficients
 
     @property
     def terms(self):
-        return {label: coeff.tolist() for label, coeff in zip(self._labels, self._coefficients)}
+        return {label: coeff for label, coeff in zip(self._labels, self._coefficients)}
 
     def to_tensor(self):
 
         size = 1 << self.num_spin_orbitals
-        batch_size = self.coefficients.size(0)
+        batch_shape = self.coefficients.shape[:-1]
         i = torch.arange(size, device=self.device)
-        tensor = torch.zeros(batch_size, size, size, dtype=torch.complex128, device=self.device)
+        tensor = torch.zeros(*batch_shape, size, size, dtype=torch.complex128, device=self.device)
         
         m_like, p_like = self.m_like, self.p_like
         x = m_like ^ p_like
@@ -145,26 +151,30 @@ class FermionOp:
         bin_tensor |= ~i[:, None] & a[None, :]
 
         idx, jdx = torch.where(bin_tensor == 0)
+        kdx = idx ^ x[jdx]
         factors = self.factors[jdx]
         weights = hamming_mod2_weight(idx & self.z_like[jdx], size)
         factors[weights != 0] *= -1
 
-        batch_indices = torch.arange(batch_size).unsqueeze(1).expand(-1, idx.size(0))
+        N = len(batch_shape) + 1
+        broadcast = [ [slice(None) if i == j else None for j in range(N)] for i in range(N)]
+        indices = tuple(torch.arange(n)[*broadcast[i]] for i, n in enumerate(batch_shape))
+        indices += (idx[*broadcast[-1]], kdx[*broadcast[-1]])
         
         tensor = tensor.index_put(
-            (batch_indices, idx, idx ^ x[jdx]), factors * self.coefficients[:, jdx], accumulate=True
+            indices, factors * self.coefficients[..., jdx], accumulate=True
         )
 
         return tensor
 
 class HermitianOp(FermionOp):
 
-    def __init__(self, num_spin_orbitals, batch_size=1, device=None):
+    def __init__(self, num_spin_orbitals, batch_shape=(), device=None):
 
-        if not isinstance(num_spin_orbitals, int) or not isinstance(batch_size, int):
-            raise TypeError("Keyword arguments must be positive integers.")
-        elif num_spin_orbitals < 1 or batch_size < 1:
-            raise ValueError("Keyword arguments must be positive integers.")
+        if not isinstance(num_spin_orbitals, int):
+            raise TypeError("Position arguments must be positive integers.")
+        elif num_spin_orbitals < 1:
+            raise ValueError("Position arguments must be positive integers.")
 
         indices = list(range(num_spin_orbitals))
 
@@ -181,7 +191,7 @@ class HermitianOp(FermionOp):
         labels = real_labels + complex_labels
 
         super().__init__(
-            labels, num_spin_orbitals=num_spin_orbitals, batch_size=batch_size, device=device
+            labels, num_spin_orbitals=num_spin_orbitals, batch_shape=batch_shape, device=device
         )
 
         self._factors[:self._diagonal_index] /= 2
@@ -196,7 +206,7 @@ class HermitianOp(FermionOp):
         the_coefficients = self._get_valid_coefficients(values)
 
         ir = self._diagonal_index
-        if the_coefficients[:, :ir].imag.any():
+        if the_coefficients[..., :ir].imag.any():
             raise ValueError(
                 f"The first {ir} coefficients must be real for the operator to be Hermitian."
             )
@@ -211,8 +221,8 @@ class HermitianOp(FermionOp):
         
         si = self.size
         di = self._diagonal_index
-        coefficients[:, :di] = values[:, :di]
-        coefficients[:, di:] = values[:, di:si] + 1j*values[:, si:]
+        coefficients[..., :di] = values[..., :di]
+        coefficients[..., di:] = values[..., di:si] + 1j*values[..., si:]
     
         self._coefficients = coefficients
 
@@ -225,9 +235,9 @@ class HermitianOp(FermionOp):
 
 class AntiHermitianOp(HermitianOp):
 
-    def __init__(self, num_spin_orbitals, batch_size=1, device=None): 
+    def __init__(self, num_spin_orbitals, batch_shape=(), device=None): 
 
-        super().__init__(num_spin_orbitals, batch_size=batch_size, device=device)
+        super().__init__(num_spin_orbitals, batch_shape=batch_shape, device=device)
 
     @property
     def coefficients(self):
@@ -239,19 +249,19 @@ class AntiHermitianOp(HermitianOp):
         the_coefficients = self._get_valid_coefficients(values)
 
         ii = self._diagonal_index
-        if the_coefficients[:, :ii].imag.any():
+        if the_coefficients[..., :ii].imag.any():
             raise ValueError(
                 f"The first {ii} coefficients must be real for the operator to be AntiHermitian."
             )
 
-        the_coefficients[:, :ii] *= 1j
+        the_coefficients[..., :ii] *= 1j
         self._coefficients = the_coefficients
 
     def update_from_flat_coefficients(self, values):
 
         di = self._diagonal_index
         super(AntiHermitianOp, self).update_from_flat_coefficients(values)
-        self._coefficients[:, :di] *= 1j
+        self._coefficients[..., :di] *= 1j
 
     def to_tensor(self):
 
