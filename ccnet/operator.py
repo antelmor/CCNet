@@ -54,7 +54,7 @@ class FermionOp:
 
         try:
             batch_shape = tuple(int(n) for n in batch_shape)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError) as err:
             raise type(err)("'batch_shape' must be an iterable of integers")
         else:
             if any(n < 1 for n in batch_shape):

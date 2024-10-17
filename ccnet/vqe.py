@@ -20,7 +20,7 @@ class VQE:
         self.num_electrons = num_electrons
         self.num_qubits = hamiltonian.num_spin_orbitals
 
-        shape = (hamiltonian.coefficients.shape[0], ansatz.num_parameters)
+        shape = ansatz.coefficients.shape[:-1]
         self.angles = torch.rand(shape, dtype=torch.float64, requires_grad=True)
 
         if optimizer_type == 'Adam':
@@ -43,7 +43,10 @@ class VQE:
 
         propagator = self.ansatz.get_propagator(self.angles)
         ground_state = propagator @ self.hf_state
-        self.energy = torch.einsum('ni,nij,nj->n', ground_state.conj(), self.H, ground_state).real
+        self.energy = torch.einsum(
+            '...i,...ij,...j->...', 
+            ground_state.conj(), self.H, ground_state
+        ).real
 
     def closure(self):
 

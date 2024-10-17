@@ -65,8 +65,8 @@ class Solver(Player):
 
     def forward(self, x):
         
-        x = super(Solver, self).forward(x).reshape(-1, self.out_size)
-        probs = nn.functional.softmax(x, dim=1)
+        x = super(Solver, self).forward(x).reshape(-1, self.pool_size, self.out_size)
+        probs = nn.functional.softmax(x, dim=2)
         probs = probs - probs.max(dim=1)[0][:, None]
         coefficients = 2*torch.sigmoid(self._sigmoid_factor * probs)
 
@@ -76,10 +76,12 @@ class Solver(Player):
 
         outputs = self.forward(inputs)
         if ansatz is None:
-            ansatz = Ansatz(self.num_states, num_parameters=self.pool_size)
+            ansatz = Ansatz(
+                self.num_states, num_parameters=self.pool_size, batch_shape=outputs.shape[:-2]
+            )
         
         ansatz._coefficients = outputs.to(torch.complex128)
-        ansatz._coefficients[:, :ansatz._diagonal_index] *= 1j
+        ansatz._coefficients[..., :ansatz._diagonal_index] *= 1j
         ansatz._tensor = ansatz.to_tensor()
 
         return ansatz
