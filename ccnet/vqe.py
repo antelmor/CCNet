@@ -50,7 +50,7 @@ class VQE:
         self.optimizer.zero_grad()
         self.compute_energy()
         self.loss = self.energy.sum()
-        self.loss.backward()
+        self.loss.backward(retain_graph=True)
 
         return self.loss
 
