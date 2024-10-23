@@ -17,10 +17,10 @@ class Ansatz(AntiHermitianOp):
 
     def get_propagator(self, angles):
 
-        U = torch.matrix_exp(angles[..., None, None] * self._tensor)
+        U = torch.matrix_exp(angles.clone()[..., None, None] * self._tensor)
 
         propagator = U[..., 0, :, :]
         for mat in torch.unbind(U[..., 1:, :, :], dim=-3):
-            propagator @= mat
+            propagator = propagator @ mat
 
         return propagator
