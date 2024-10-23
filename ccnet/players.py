@@ -72,17 +72,21 @@ class Solver(Player):
 
         return coefficients
 
-    def create_ansatz(self, inputs, ansatz=None):
+    def update_ansatz(self, inputs, ansatz):
 
+        idiag = ansatz._diagonal_index
         outputs = self.forward(inputs)
-        if ansatz is None:
-            ansatz = Ansatz(
-                self.num_states, num_parameters=self.pool_size, batch_shape=outputs.shape[:-2]
-            )
-        
         ansatz._coefficients = outputs.to(torch.complex128)
-        ansatz._coefficients[..., :ansatz._diagonal_index] *= 1j
+        ansatz._coefficients[..., :idiag] *= 1j
+        ansatz._coefficients[..., idiag:] *= torch.exp(2*torch.pi*1j* outputs[..., idiag:])
         ansatz._tensor = ansatz.to_tensor()
+
+    def generate_ansatz(self, inputs):
+
+        ansatz = Ansatz(
+                self.num_states, num_parameters=self.pool_size, batch_shape=inputs.shape[:-1]
+        )
+        self.update_ansatz(inputs, ansatz)
 
         return ansatz
 
@@ -97,6 +101,6 @@ class Solver(Player):
         coefficients = hamiltonian.coefficients
         inputs = torch.concatenate([coefficients.real, coefficients.imag[:, ir:]], dim=1)
         
-        ansatz = self.create_ansatz(inputs)
+        ansatz = self.generate_ansatz(inputs)
 
         self.vqe = VQE(hamiltonian, ansatz, **options)
