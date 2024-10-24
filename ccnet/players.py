@@ -67,7 +67,7 @@ class Solver(Player):
         
         x = super(Solver, self).forward(x).reshape(-1, self.pool_size, self.out_size)
         probs = nn.functional.softmax(x, dim=2)
-        probs = probs - probs.max(dim=1)[0][:, None]
+        probs = probs - probs.max(dim=-1)[0][..., None]
         coefficients = 2*torch.sigmoid(self._sigmoid_factor * probs)
 
         return coefficients
