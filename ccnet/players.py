@@ -44,7 +44,7 @@ class Proposer(Player):
         noise = torch.rand(batch_size, self.size, dtype=torch.float64)
         outputs = self.forward(noise)
 
-        hamiltonian = HermitianOp(self.num_states, batch_size=batch_size)
+        hamiltonian = HermitianOp(self.num_states, batch_shape=(batch_size,))
         hamiltonian.update_from_flat_coefficients(outputs)
 
         return hamiltonian
