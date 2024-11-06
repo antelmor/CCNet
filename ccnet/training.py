@@ -1,8 +1,8 @@
 import torch
 
-from .utils import get_HF_state
+from .utils import get_HF_state, Ansatz
 from .players import Solver, Proposer
-from .operator import HermitianOp, AntiHermitianOp
+from .operator import HermitianOp
 
 class BasicTraining:
 
@@ -10,7 +10,7 @@ class BasicTraining:
             solver=None, 
             num_states=None, 
             num_electrons=1, 
-            num_sets=1,
+            pool_size=5,
             hidden_size=128
         ):
 
@@ -19,51 +19,39 @@ class BasicTraining:
         if solver is None and num_states is None:
             raise ValueError("You must provide the solver or the number of states.")
         elif solver is None:
-            solver = Solver(num_states, num_sets=num_sets, hidden_size=hidden_size).double()
+            solver = Solver(num_states, pool_size=pool_size, hidden_size=hidden_size).double()
 
         self.solver = solver.to(self.device)
         self.num_states = solver.num_states
-        self.num_sets = solver.num_sets
+        self.pool_size = solver.pool_size
+        self.num_electrons = num_electrons
         self.size = 1 << self.num_states
         self.hamiltonian = HermitianOp(self.num_states, device=self.device)
-        self.ansatz = AntiHermitianOp(self.num_states)
         self.hf_state  = get_HF_state(self.num_states, num_electrons=num_electrons).to(self.device)
 
     def calculate_exact_energy(self):
 
         self.H = self.hamiltonian.to_tensor()
-        eigvals, eigvecs = torch.linalg.eigh(self.H)
-        self.exact_energy = eigvals[:, 0]
-        self.exact_gstate = eigvecs[:, :, 0]
+        eigvals = torch.linalg.eigvalsh(self.H)
+        self.exact_energy = eigvals[..., 0]
+
+    def diversity_loss(self):
+
+        coefficients = self.solver.vqe.ansatz.coefficients
+        normsum = ( coefficients*coefficients.conj() ).sum(dim=-1)
+        x = 4*(normsum.real - 1)
+        loss = torch.exp(x) + torch.exp(-x) - 2
+
+        return loss
 
     def criterion_step(self, retain_graph=False):
 
-        A = self.ansatz.to_tensor().reshape(-1, self.num_sets, self.size, self.size)
-        exp = torch.matrix_exp(A)
-        U = exp[:, 0]
-        for i in range(1, exp.shape[1]):
-            U @= exp[:, i]
+        self.solver.vqe.run(max_iterations=1000, lr=0.1)
+        #loss = ( (self.exact_energy - self.solver.vqe.energy) / self.exact_energy )**2
+        energy_loss = torch.abs( self.exact_energy - self.solver.vqe.energy )
+        diversity_loss = self.diversity_loss()
 
-        ground_state = U @ self.hf_state
-        energy = torch.einsum('ni,nij,nj->n', ground_state.conj(), self.H, ground_state).real
-
-        loss = ( (energy - self.exact_energy) / (self.exact_energy + energy) )**2
-        loss = torch.log(loss + 1)
-        self.loss = loss.mean()
-        self.loss.backward(retain_graph=retain_graph)
-
-    def criterion_step0(self, retain_graph=False):
-
-        A = self.ansatz.to_tensor().reshape(-1, self.num_sets, self.size, self.size)
-        exp = torch.matrix_exp(A)
-        U = exp[:, 0]
-        for i in range(1, exp.shape[1]):
-            U @= exp[:, i]
-
-        ground_state = U @ self.hf_state
-        difference = ground_state - self.exact_gstate
-        loss = torch.linalg.norm(difference, dim=1) / 2
-        self.loss = loss.mean()
+        self.loss = energy_loss.mean() + diversity_loss.mean()
         self.loss.backward(retain_graph=retain_graph)
 
     def generate(self):
@@ -74,17 +62,18 @@ class BasicTraining:
             num_epochs=4,
             batch_size=5,
             retain_graph=False,
-            verbosity=torch.inf
+            verbosity=torch.inf,
+            optimizer_type='Adam',
             ):
 
         self.solver.train()
-        optimizer = torch.optim.Adam(self.solver.parameters(), lr=1e-3)
+        optimizer = torch.optim.Adam(self.solver.parameters(), lr=0.1)
 
         self.hamiltonian.coefficients = torch.zeros(
             batch_size, self.hamiltonian.size, dtype=torch.complex128, device=self.device
-        )
-        self.ansatz.coefficients = torch.zeros(
-            batch_size*self.num_sets, self.ansatz.size, dtype=torch.complex128, device=self.device
+        ) 
+        self.solver.assemble_vqe(
+            self.hamiltonian, num_electrons=self.num_electrons, optimizer_type=optimizer_type
         )
 
         for step in range(training_steps):
@@ -93,10 +82,8 @@ class BasicTraining:
             self.calculate_exact_energy()
 
             for epoch in range(num_epochs):
-                self.solver.train()
                 optimizer.zero_grad()
-                outputs = self.solver(inputs).reshape(-1, self.solver.size)
-                self.ansatz.update_from_flat_coefficients(outputs)
+                self.solver.update_ansatz(inputs, self.solver.vqe.ansatz)
                 self.criterion_step(retain_graph=retain_graph)
                 optimizer.step()
 
@@ -149,7 +136,7 @@ class Game(BasicTraining):
             solver=None,
             num_states=None,
             num_electrons=1,
-            num_sets=1,
+            pool_size=5,
             hidden_size=128
             ):
 
@@ -165,7 +152,7 @@ class Game(BasicTraining):
             solver=solver,
             num_states=num_states,
             num_electrons=num_electrons,
-            num_sets=num_sets,
+            pool_size=pool_size,
             hidden_size=hidden_size
         )
 
@@ -181,14 +168,8 @@ class Game(BasicTraining):
 
     def generate(self):
 
-        try:
-            for param in self.proposer.parameters():
-                param.grad *= -1
-        except TypeError:
-            pass
-        else:
-            self.prop_optimizer.step()
-            self.prop_optimizer.zero_grad()
+        self.prop_optimizer.step()
+        self.prop_optimizer.zero_grad()
 
         self.noise = torch.rand(self.inputs_shape, dtype=torch.float64, device=self.device)
         data = self.proposer(self.noise)
@@ -199,7 +180,8 @@ class Game(BasicTraining):
 
         self.proposer.train()
         self.inputs_shape = (batch_size, self.proposer.size)
-        self.prop_optimizer = torch.optim.Adam(self.proposer.parameters(), lr=1e-3)
+        print('hola')
+        self.prop_optimizer = torch.optim.Adam(self.proposer.parameters(), lr=1e-3, maximize=True)
 
         kwargs.pop('retain_graph', None)
         super().run(batch_size=batch_size, retain_graph=True, **kwargs)
