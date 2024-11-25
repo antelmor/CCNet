@@ -17,15 +17,21 @@ class Player(nn.Module):
         num_second_pairs = comb(num_first_pairs, 2)
         self.size = 2*num_second_pairs + 3*num_first_pairs + num_states
 
-        self.fc1 = nn.Linear(self.size, self._hidden_size)
-        self.fc2 = nn.Linear(self._hidden_size, self._hidden_size)
-        self.fc3 = nn.Linear(self._hidden_size, self.size)
+        self.base_fc = nn.Sequential(
+            nn.Linear(self.size, hidden_size),
+            nn.ReLU(),
+            nn.Linear(hidden_size, hidden_size),
+            nn.ReLU(),
+            nn.Linear(hidden_size, hidden_size),
+            nn.ReLU()
+        )
+
+        self.head = nn.Linear(hidden_size, self.size)
 
     def forward(self, x):
         
-        x = torch.relu(self.fc1(x))
-        x = torch.relu(self.fc2(x))
-        coefficients = self.fc3(x)
+        x = self.base_fc(x)
+        coefficients = self.head(x)
 
         return coefficients
 
@@ -61,24 +67,38 @@ class Solver(Player):
         num_second_pairs = comb(num_first_pairs, 2)
         self.out_size = num_second_pairs + 2*num_first_pairs + num_states
 
-        self.fc3 = nn.Linear(self._hidden_size, pool_size*self.out_size)
+        self.head = nn.Linear(hidden_size, pool_size*self.out_size)
+        self.head_state = nn.Linear(hidden_size, 1 << num_states)
+
+    def pseudo_heaviside(self, x):
+
+        probs = nn.functional.softmax(x, dim=-1)
+        probs = probs - probs.max(dim=-1)[0][..., None]
+        result = 2*torch.sigmoid(self._sigmoid_factor * probs)
+
+        return result
 
     def forward(self, x):
         
-        x = super(Solver, self).forward(x).reshape(-1, self.pool_size, self.out_size)
-        probs = nn.functional.softmax(x, dim=2)
-        probs = probs - probs.max(dim=-1)[0][..., None]
-        coefficients = 2*torch.sigmoid(self._sigmoid_factor * probs)
+        x = self.base_fc(x)
 
-        return coefficients
+        x1 = self.head(x).reshape(-1, self.pool_size, self.out_size)
+        coefficients = self.pseudo_heaviside(x1)
+
+        x2 = self.head_state(x)
+        init_state = self.pseudo_heaviside(x2)
+
+        return init_state, coefficients
 
     def update_ansatz(self, inputs, ansatz):
 
         idiag = ansatz._diagonal_index
-        outputs = self.forward(inputs)
-        ansatz._coefficients = outputs.to(torch.complex128)
+        init_state, coeffs = self.forward(inputs)
+
+        ansatz._state0 = init_state.to(torch.complex128)
+        ansatz._coefficients = coeffs.to(torch.complex128)
         ansatz._coefficients[..., :idiag] *= 1j
-        ansatz._coefficients[..., idiag:] *= torch.exp(2*torch.pi*1j* outputs[..., idiag:])
+        ansatz._coefficients[..., idiag:] *= torch.exp(2*torch.pi*1j* coeffs[..., idiag:])
         ansatz._tensor = ansatz.to_tensor()
 
     def generate_ansatz(self, inputs):
@@ -103,4 +123,4 @@ class Solver(Player):
         
         ansatz = self.generate_ansatz(inputs)
 
-        self.vqe = VQE(hamiltonian, ansatz, **options)
+        return VQE(hamiltonian, ansatz, **options)

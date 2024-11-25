@@ -23,6 +23,11 @@ class VQE:
         shape = ansatz.coefficients.shape[:-1]
         self.angles = torch.rand(shape, dtype=torch.float64, requires_grad=True)
 
+        if ansatz.init_state is None:
+            hf_state = get_HF_state(self.num_qubits, num_electrons=num_electrons)
+            shape = ansatz.coefficients.shape[:-2]
+            ansatz.init_state = hf_state.repeat(shape, 1)
+
         if optimizer_type == 'Adam':
             self.optimizer = torch.optim.Adam([self.angles])
         elif optimizer_type == 'SGD':
@@ -42,7 +47,7 @@ class VQE:
     def compute_energy(self):
 
         propagator = self.ansatz.get_propagator(self.angles)
-        ground_state = propagator @ self.hf_state
+        ground_state = torch.einsum('...ij,...j->...i', propagator, self.ansatz.init_state)
         self.energy = torch.einsum(
             '...i,...ij,...j->...', 
             ground_state.conj(), self.H, ground_state
@@ -61,8 +66,6 @@ class VQE:
         
         self.modify_optimizer(**kwargs)
         self.H = self.hamiltonian.to_tensor()
-        #torch.autograd.set_detect_anomaly(True)
-        self.hf_state = get_HF_state(self.num_qubits, num_electrons=self.num_electrons)
         self.energy = torch.zeros(self.H.shape[0], dtype=torch.float64)
 
         for _ in range(max_iterations):
@@ -75,4 +78,6 @@ class VQE:
                 break
 
         self.propagator = self.ansatz.get_propagator(self.angles)
-        self.ground_state = self.propagator @ self.hf_state
+        self.ground_state = torch.einsum(
+            '...ij,...j->...i', self.propagator, self.ansatz.init_state
+        )

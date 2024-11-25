@@ -1,4 +1,5 @@
 import torch
+from .quantum_states import get_HF_state 
 from ..operator import AntiHermitianOp
 
 class Ansatz(AntiHermitianOp):
@@ -8,12 +9,31 @@ class Ansatz(AntiHermitianOp):
         shape = (*batch_shape, num_parameters)
         super().__init__(num_spin_orbitals, batch_shape=shape, device=device)
         self.num_parameters = num_parameters
+        self._state0 = None
 
     @AntiHermitianOp.coefficients.setter
     def coefficients(self, values):
 
         AntiHermitianOp.coefficients.fset(self, values)
         self._tensor = self.to_tensor()
+
+    @property
+    def init_state(self):
+        return self._state0
+
+    @init_state.setter
+    def init_state(self, value):
+
+        try:
+            init_state = torch.as_tensor(value)
+        except (TypeError, ValueError, RuntimeError) as err:
+            raise type(err)(f"'init_state' must be a tensor like object with numerical data.")
+
+        required_shape = (*self.coefficients.shape[:-2], 1 << self.num_spin_orbitals)
+        if init_state.shape != required_shape:
+            raise ValueError(f"'init_state' shape is inconsistent. Must be {required_shape}")
+
+        self._state0 = init_state
 
     def get_propagator(self, angles):
 

@@ -9,7 +9,6 @@ class BasicTraining:
     def __init__(self, 
             solver=None, 
             num_states=None, 
-            num_electrons=1, 
             pool_size=5,
             hidden_size=128
         ):
@@ -24,10 +23,8 @@ class BasicTraining:
         self.solver = solver.to(self.device)
         self.num_states = solver.num_states
         self.pool_size = solver.pool_size
-        self.num_electrons = num_electrons
         self.size = 1 << self.num_states
         self.hamiltonian = HermitianOp(self.num_states, device=self.device)
-        self.hf_state  = get_HF_state(self.num_states, num_electrons=num_electrons).to(self.device)
 
     def calculate_exact_energy(self):
 
@@ -37,7 +34,7 @@ class BasicTraining:
 
     def diversity_loss(self):
 
-        coefficients = self.solver.vqe.ansatz.coefficients
+        coefficients = self.vqe.ansatz.coefficients
         normsum = ( coefficients*coefficients.conj() ).sum(dim=-1)
         x = 4*(normsum.real - 1)
         loss = torch.exp(x) + torch.exp(-x) - 2
@@ -46,9 +43,9 @@ class BasicTraining:
 
     def criterion_step(self, retain_graph=False):
 
-        self.solver.vqe.run(max_iterations=1000, lr=0.1)
+        self.vqe.run(max_iterations=1000, lr=0.1)
         #loss = ( (self.exact_energy - self.solver.vqe.energy) / self.exact_energy )**2
-        energy_loss = torch.abs( self.exact_energy - self.solver.vqe.energy )
+        energy_loss = torch.abs( self.exact_energy - self.vqe.energy )
         diversity_loss = self.diversity_loss()
 
         self.loss = energy_loss.mean() + diversity_loss.mean()
@@ -72,8 +69,8 @@ class BasicTraining:
         self.hamiltonian.coefficients = torch.zeros(
             batch_size, self.hamiltonian.size, dtype=torch.complex128, device=self.device
         ) 
-        self.solver.assemble_vqe(
-            self.hamiltonian, num_electrons=self.num_electrons, optimizer_type=optimizer_type
+        self.vqe = self.solver.assemble_vqe(
+            self.hamiltonian, optimizer_type=optimizer_type
         )
 
         for step in range(training_steps):
@@ -83,7 +80,7 @@ class BasicTraining:
 
             for epoch in range(num_epochs):
                 optimizer.zero_grad()
-                self.solver.update_ansatz(inputs, self.solver.vqe.ansatz)
+                self.solver.update_ansatz(inputs, self.vqe.ansatz)
                 self.criterion_step(retain_graph=retain_graph)
                 optimizer.step()
 
@@ -135,7 +132,6 @@ class Game(BasicTraining):
             proposer=None,
             solver=None,
             num_states=None,
-            num_electrons=1,
             pool_size=5,
             hidden_size=128
             ):
@@ -151,7 +147,6 @@ class Game(BasicTraining):
         super().__init__(
             solver=solver,
             num_states=num_states,
-            num_electrons=num_electrons,
             pool_size=pool_size,
             hidden_size=hidden_size
         )
