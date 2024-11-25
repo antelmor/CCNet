@@ -60,11 +60,17 @@ class Solver(Player):
         super(Solver, self).__init__(num_states, width=width, depth=depth)
         self.pool_size = pool_size
 
-        num_first_pairs = comb(num_states, 2)
-        num_second_pairs = comb(num_first_pairs, 2)
-        self.out_size = num_second_pairs + 2*num_first_pairs + num_states
-
+        self.out_size = self.head.out_features
         self.head = nn.Linear(width, pool_size*self.out_size)
+
+        self.state_fc = nn.Sequential(
+            nn.Linear(self.size, width),
+            nn.ReLU(),
+            nn.Linear(width, width),
+            nn.ReLU(),
+            nn.Linear(width, width),
+            nn.ReLU()
+        )
         self.head_state = nn.Linear(width, 1 << num_states)
 
     def pseudo_heaviside(self, x):
@@ -77,12 +83,13 @@ class Solver(Player):
 
     def forward(self, x):
         
-        x = self.base_fc(x)
+        x1 = self.base_fc(x)
+        x2 = self.state_fc(x)
 
-        x1 = self.head(x).reshape(-1, self.pool_size, self.out_size)
+        x1 = self.head(x1).reshape(-1, self.pool_size, self.out_size)
         coefficients = self.pseudo_heaviside(x1)
 
-        x2 = self.head_state(x)
+        x2 = self.head_state(x2)
         init_state = self.pseudo_heaviside(x2)
 
         return init_state, coefficients
