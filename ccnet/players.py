@@ -60,7 +60,9 @@ class Solver(Player):
         super(Solver, self).__init__(num_states, width=width, depth=depth)
         self.pool_size = pool_size
 
-        self.out_size = self.head.out_features
+        num_first_pairs = comb(num_states, 2)
+        num_second_pairs = comb(num_first_pairs, 2)
+        self.out_size = num_second_pairs + 2*num_first_pairs + num_states
         self.head = nn.Linear(width, pool_size*self.out_size)
 
         self.state_fc = nn.Sequential(
