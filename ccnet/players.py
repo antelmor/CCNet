@@ -8,25 +8,22 @@ from .operator import HermitianOp
 
 class Player(nn.Module):
 
-    def __init__(self, num_states, hidden_size=128):
+    def __init__(self, num_states, width=64, depth=4):
         super(Player, self).__init__()
         self.num_states = num_states
-        self._hidden_size = hidden_size
 
         num_first_pairs = comb(num_states, 2)
         num_second_pairs = comb(num_first_pairs, 2)
         self.size = 2*num_second_pairs + 3*num_first_pairs + num_states
 
+        layers = [nn.Linear(width, width), nn.ReLU()]*(depth-1)
         self.base_fc = nn.Sequential(
-            nn.Linear(self.size, hidden_size),
+            nn.Linear(self.size, width),
             nn.ReLU(),
-            nn.Linear(hidden_size, hidden_size),
-            nn.ReLU(),
-            nn.Linear(hidden_size, hidden_size),
-            nn.ReLU()
+            *layers
         )
 
-        self.head = nn.Linear(hidden_size, self.size)
+        self.head = nn.Linear(width, self.size)
 
     def forward(self, x):
         
@@ -37,8 +34,8 @@ class Player(nn.Module):
 
 class Proposer(Player):
 
-    def __init__(self, num_states):
-        super(Proposer, self).__init__(num_states)
+    def __init__(self, num_states, **kwargs):
+        super(Proposer, self).__init__(num_states, **kwargs)
 
     def forward(self, x):
         x = super(Proposer, self).forward(x)
@@ -59,16 +56,16 @@ class Solver(Player):
 
     _sigmoid_factor = 1e+6
 
-    def __init__(self, num_states, pool_size=5, hidden_size=128):
-        super(Solver, self).__init__(num_states, hidden_size=hidden_size)
+    def __init__(self, num_states, pool_size=5, width=64, depth=4):
+        super(Solver, self).__init__(num_states, width=width, depth=depth)
         self.pool_size = pool_size
 
         num_first_pairs = comb(num_states, 2)
         num_second_pairs = comb(num_first_pairs, 2)
         self.out_size = num_second_pairs + 2*num_first_pairs + num_states
 
-        self.head = nn.Linear(hidden_size, pool_size*self.out_size)
-        self.head_state = nn.Linear(hidden_size, 1 << num_states)
+        self.head = nn.Linear(width, pool_size*self.out_size)
+        self.head_state = nn.Linear(width, 1 << num_states)
 
     def pseudo_heaviside(self, x):
 

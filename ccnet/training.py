@@ -10,7 +10,8 @@ class BasicTraining:
             solver=None, 
             num_states=None, 
             pool_size=5,
-            hidden_size=128
+            width=64,
+            depth=4
         ):
 
         self.device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
@@ -18,7 +19,7 @@ class BasicTraining:
         if solver is None and num_states is None:
             raise ValueError("You must provide the solver or the number of states.")
         elif solver is None:
-            solver = Solver(num_states, pool_size=pool_size, hidden_size=hidden_size).double()
+            solver = Solver(num_states, pool_size=pool_size, width=width, depth=depth).double()
 
         self.solver = solver.to(self.device)
         self.num_states = solver.num_states
@@ -133,7 +134,8 @@ class Game(BasicTraining):
             solver=None,
             num_states=None,
             pool_size=5,
-            hidden_size=128
+            width=64,
+            depth=4
             ):
 
         if solver is None and num_states is None:
@@ -148,11 +150,12 @@ class Game(BasicTraining):
             solver=solver,
             num_states=num_states,
             pool_size=pool_size,
-            hidden_size=hidden_size
+            width=width,
+            depth=depth
         )
 
         if proposer is None:
-            proposer = Proposer(self.num_states).double().to(self.device) 
+            proposer = Proposer(self.num_states).double().to(self.device)
 
         if proposer.num_states != self.solver.num_states:
             raise ValueError(
