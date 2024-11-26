@@ -178,7 +178,6 @@ class Game(BasicTraining):
 
         self.proposer.train()
         self.inputs_shape = (batch_size, self.proposer.size)
-        print('hola')
         self.prop_optimizer = torch.optim.Adam(self.proposer.parameters(), lr=1e-3, maximize=True)
 
         kwargs.pop('retain_graph', None)

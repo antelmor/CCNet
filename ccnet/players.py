@@ -3,7 +3,7 @@ from torch import nn
 from math import comb
 
 from .vqe import VQE
-from .utils import get_HF_state, Ansatz
+from .utils import get_HF_state, Ansatz, heaviside
 from .operator import HermitianOp
 
 class Player(nn.Module):
@@ -16,9 +16,10 @@ class Player(nn.Module):
         num_second_pairs = comb(num_first_pairs, 2)
         self.size = 2*num_second_pairs + 3*num_first_pairs + num_states
 
-        layers = [nn.Linear(width, width), nn.ReLU()]*(depth-1)
+        layers = [nn.Linear(width, width), nn.BatchNorm1d(width), nn.ReLU()]*(depth-1)
         self.base_fc = nn.Sequential(
             nn.Linear(self.size, width),
+            nn.BatchNorm1d(width),
             nn.ReLU(),
             *layers
         )
@@ -54,8 +55,6 @@ class Proposer(Player):
 
 class Solver(Player):
 
-    _sigmoid_factor = 1e+6
-
     def __init__(self, num_states, pool_size=5, width=64, depth=4):
         super(Solver, self).__init__(num_states, width=width, depth=depth)
         self.pool_size = pool_size
@@ -67,19 +66,22 @@ class Solver(Player):
 
         self.state_fc = nn.Sequential(
             nn.Linear(self.size, width),
+            nn.BatchNorm1d(width),
             nn.ReLU(),
             nn.Linear(width, width),
+            nn.BatchNorm1d(width),
             nn.ReLU(),
             nn.Linear(width, width),
+            nn.BatchNorm1d(width),
             nn.ReLU()
         )
         self.head_state = nn.Linear(width, 1 << num_states)
 
-    def pseudo_heaviside(self, x):
+    def discretize(self, x):
 
         probs = nn.functional.softmax(x, dim=-1)
         probs = probs - probs.max(dim=-1)[0][..., None]
-        result = 2*torch.sigmoid(self._sigmoid_factor * probs)
+        result = heaviside(probs)
 
         return result
 
@@ -89,10 +91,11 @@ class Solver(Player):
         x2 = self.state_fc(x)
 
         x1 = self.head(x1).reshape(-1, self.pool_size, self.out_size)
-        coefficients = self.pseudo_heaviside(x1)
+        coefficients = self.discretize(x1)
 
         x2 = self.head_state(x2)
-        init_state = self.pseudo_heaviside(x2)
+        init_state = self.discretize(x2)
+        #print(init_state.argmax(), coefficients.argmax(dim=-1))
 
         return init_state, coefficients
 
