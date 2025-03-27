@@ -36,7 +36,7 @@ class VQE:
             self.optimizer = torch.optim.LBFGS([self.angles])
         else:
             raise ValueError(
-                f"Unrecognized optimizer mode '{mode}'. Valid options are: Adam, SGD, or LBFGS"
+                f"Unrecognized optimizer mode '{optimizer_type}'. Valid options are: Adam, SGD, or LBFGS"
             )
 
     def modify_optimizer(self, **options):

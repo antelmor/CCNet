@@ -42,9 +42,9 @@ class BasicTraining:
 
         return loss
 
-    def criterion_step(self, retain_graph=False):
+    def criterion_step(self, retain_graph=False, **kwargs):
 
-        self.vqe.run(max_iterations=1000, lr=0.1)
+        self.vqe.run(**kwargs)
         #loss = ( (self.exact_energy - self.solver.vqe.energy) / self.exact_energy )**2
         energy_loss = torch.abs( self.exact_energy - self.vqe.energy )
         diversity_loss = self.diversity_loss()
@@ -61,7 +61,7 @@ class BasicTraining:
             batch_size=5,
             retain_graph=False,
             verbosity=torch.inf,
-            optimizer_type='Adam',
+            vqe_options={},
             ):
 
         self.solver.train()
@@ -71,7 +71,7 @@ class BasicTraining:
             batch_size, self.hamiltonian.size, dtype=torch.complex128, device=self.device
         ) 
         self.vqe = self.solver.assemble_vqe(
-            self.hamiltonian, optimizer_type=optimizer_type
+            self.hamiltonian, optimizer_type=vqe_options.pop('optimizer_type', 'Adam')
         )
 
         for step in range(training_steps):
@@ -82,7 +82,7 @@ class BasicTraining:
             for epoch in range(num_epochs):
                 optimizer.zero_grad()
                 self.solver.update_ansatz(inputs, self.vqe.ansatz)
-                self.criterion_step(retain_graph=retain_graph)
+                self.criterion_step(retain_graph=retain_graph, **vqe_options)
                 optimizer.step()
 
             if step % verbosity == 0:
