@@ -57,13 +57,47 @@ class Solver(Player):
 
     def __init__(self, num_states, pool_size=5, width=64, depth=4):
         super(Solver, self).__init__(num_states, width=width, depth=depth)
-        
         self.pool_size = pool_size
+
+        num_first_pairs = comb(num_states, 2)
+        num_second_pairs = comb(num_first_pairs, 2)
+        self.out_size = num_second_pairs + 2*num_first_pairs + num_states
         self.head = nn.Linear(width, pool_size*self.out_size)
 
-    def forward(self, x):
+        self.state_fc = nn.Sequential(
+            nn.Linear(self.size, width),
+            nn.BatchNorm1d(width),
+            nn.ReLU(),
+            nn.Linear(width, width),
+            nn.BatchNorm1d(width),
+            nn.ReLU(),
+            nn.Linear(width, width),
+            nn.BatchNorm1d(width),
+            nn.ReLU()
+        )
+        self.head_state = nn.Linear(width, 1 << num_states)
 
-        return super().forward(x).reshape(-1, self.pool_size, self.size)
+    def discretize(self, x):
+
+        probs = nn.functional.softmax(x, dim=-1)
+        probs = probs - probs.max(dim=-1)[0][..., None]
+        result = heaviside(probs)
+
+        return result
+
+    def forward(self, x):
+        
+        x1 = self.base_fc(x)
+        x2 = self.state_fc(x)
+
+        x1 = self.head(x1).reshape(-1, self.pool_size, self.out_size)
+        coefficients = self.discretize(x1)
+
+        x2 = self.head_state(x2)
+        init_state = self.discretize(x2)
+        #print(init_state.argmax(), coefficients.argmax(dim=-1))
+
+        return init_state, coefficients
 
     def update_ansatz(self, inputs, ansatz):
 
