@@ -1,4 +1,5 @@
 import torch
+from torch_optimizer import Lookahead
 
 from .utils import get_HF_state, Ansatz
 from .players import Solver, Proposer
@@ -19,7 +20,7 @@ class BasicTraining:
         if solver is None and num_states is None:
             raise ValueError("You must provide the solver or the number of states.")
         elif solver is None:
-            solver = Solver(num_states, pool_size=pool_size, width=width, depth=depth).double()
+            solver = Solver(num_states=num_states, pool_size=pool_size, width=width, depth=depth).double()
 
         self.solver = solver.to(self.device)
         self.num_states = solver.num_states
@@ -27,30 +28,39 @@ class BasicTraining:
         self.size = 1 << self.num_states
         self.hamiltonian = HermitianOp(self.num_states, device=self.device)
 
-    def calculate_exact_energy(self):
+    def calculate_exact(self):
 
         self.H = self.hamiltonian.to_tensor()
+        #eigvals, eigvectors = torch.linalg.eigh(self.H)
         eigvals = torch.linalg.eigvalsh(self.H)
         self.exact_energy = eigvals[..., 0]
+        #self.ground_state = eigvectors[..., 0]
 
-    def diversity_loss(self):
+    def calculate_uccsd(self):
 
-        coefficients = self.vqe.ansatz.coefficients
-        normsum = ( coefficients*coefficients.conj() ).sum(dim=-1)
-        x = 4*(normsum.real - 1)
-        loss = torch.exp(x) + torch.exp(-x) - 2
+        propagator = self.ansatz.get_propagator()
+        gstate = (propagator * self.ansatz._state0[..., None, :]).sum(dim=-1)
+        self.uccsd_energy = (
+            gstate[..., None].conj() * self.H * gstate[..., None, :]
+        ).sum(dim=(-1, -2)).real
+        self.uccsd_state = gstate
 
-        return loss
+    def criterion_step(self, retain_graph=False):
 
-    def criterion_step(self, retain_graph=False, **kwargs):
+        energy_loss = self.huberloss(self.exact_energy, self.uccsd_energy)
+        #inner = (self.ground_state.conj() * self.uccsd_state).sum(dim=-1)
+        #groundstate_loss = 1 - (inner.conj() * inner).real
 
-        self.vqe.run(**kwargs)
-        #loss = ( (self.exact_energy - self.solver.vqe.energy) / self.exact_energy )**2
-        energy_loss = torch.abs( self.exact_energy - self.vqe.energy )
-        diversity_loss = self.diversity_loss()
-
-        self.loss = energy_loss.mean() + diversity_loss.mean()
+        mel = energy_loss.mean()
+        #gsl = groundstate_loss.mean()
+        #print(f'Energy loss = {mel}, Ground State loss = {gsl}, Exact = {self.exact_energy.tolist()}, UCCSD = {self.uccsd_energy.tolist()}')
+        self.loss = mel
         self.loss.backward(retain_graph=retain_graph)
+        #for name, param in self.solver.named_parameters():
+        #    if param.grad is None:
+        #        print(f"[No grad] {name}")
+        #    else:
+        #        print(f"[OK grad] {name}, grad norm: {param.grad.norm()}")
 
     def generate(self):
         pass
@@ -61,32 +71,42 @@ class BasicTraining:
             batch_size=5,
             retain_graph=False,
             verbosity=torch.inf,
-            vqe_options={},
-            ):
+            delta=1.0,
+            lr=1e-3,
+            weight_decay=1e-4
+        ):
 
         self.solver.train()
-        optimizer = torch.optim.Adam(self.solver.parameters(), lr=0.1)
+        base_optimizer = torch.optim.Adam(self.solver.parameters(), lr=lr, weight_decay=weight_decay)
+        optimizer = Lookahead(base_optimizer, k=5, alpha=0.5)
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(base_optimizer, T_0=100)
 
         self.hamiltonian.coefficients = torch.zeros(
             batch_size, self.hamiltonian.size, dtype=torch.complex128, device=self.device
         ) 
-        self.vqe = self.solver.assemble_vqe(
-            self.hamiltonian, optimizer_type=vqe_options.pop('optimizer_type', 'Adam')
+        self.ansatz = self.solver.generate_ansatz(
+            2*torch.rand(batch_size, self.solver.size, dtype=torch.float64, device=self.device)
         )
+        self.huberloss = torch.nn.HuberLoss(delta=delta)
 
-        for step in range(training_steps):
-            inputs = self.generate()
-            self.hamiltonian.update_from_flat_coefficients(inputs)
-            self.calculate_exact_energy()
+        self.energy_diff = []
+        for step in range(1, training_steps+1):
+            self.inputs = self.generate()
+            self.hamiltonian.update_from_flat_coefficients(self.inputs)
+            self.calculate_exact()
 
             for epoch in range(num_epochs):
                 optimizer.zero_grad()
-                self.solver.update_ansatz(inputs, self.vqe.ansatz)
-                self.criterion_step(retain_graph=retain_graph, **vqe_options)
+                self.solver.update_ansatz(self.inputs, self.ansatz)
+                self.calculate_uccsd()
+                self.criterion_step(retain_graph=retain_graph)
                 optimizer.step()
+                scheduler.step()
+            self.energy_diff.append([self.exact_energy.mean(), self.uccsd_energy.mean()])
 
             if step % verbosity == 0:
                 print(f'Step {step}, Loss = {self.loss.item()}')
+        self.energy_diff = torch.as_tensor(self.energy_diff)
 
 class Random(BasicTraining):
 
@@ -94,8 +114,8 @@ class Random(BasicTraining):
         super().__init__(**kwargs)
 
     def generate(self):
-
-        return 2*torch.rand(self.inputs_shape, dtype=torch.float64, device=self.device) - 1
+        inputs = 2*torch.rand(self.inputs_shape, dtype=torch.float64, device=self.device) - 1
+        return inputs.requires_grad_()
 
     def run(self, batch_size=5, **kwargs):
 
@@ -155,7 +175,7 @@ class Game(BasicTraining):
         )
 
         if proposer is None:
-            proposer = Proposer(self.num_states).double().to(self.device)
+            proposer = Proposer(num_states=self.num_states).double().to(self.device)
 
         if proposer.num_states != self.solver.num_states:
             raise ValueError(

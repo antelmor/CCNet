@@ -29,15 +29,19 @@ class Ansatz(AntiHermitianOp):
         except (TypeError, ValueError, RuntimeError) as err:
             raise type(err)(f"'init_state' must be a tensor like object with numerical data.")
 
-        required_shape = (*self.coefficients.shape[:-2], 1 << self.num_spin_orbitals)
-        if init_state.shape != required_shape:
-            raise ValueError(f"'init_state' shape is inconsistent. Must be {required_shape}")
+        size = 1 << self.num_spin_orbitals
+        acceptable_shapes = [(*self.coefficients.shape[:-2], size), (size,)]
+        if init_state.shape not in acceptable_shapes:
+            raise ValueError(f"'init_state' shape is inconsistent. Must be {acceptable_shapes}")
 
         self._state0 = init_state
 
-    def get_propagator(self, angles):
+    def get_propagator(self, angles=None):
 
-        U = torch.matrix_exp(angles.clone()[..., None, None] * self._tensor)
+        if angles is None:
+            U = torch.linalg.matrix_exp(self._tensor)
+        else:
+            U = torch.linalg.matrix_exp(angles.clone()[..., None, None] * self._tensor)
 
         propagator = U[..., 0, :, :]
         for mat in torch.unbind(U[..., 1:, :, :], dim=-3):
