@@ -1,5 +1,5 @@
 import torch
-from torch_optimizer import Lookahead
+from pytorch_optimizer import Lookahead
 
 from .utils import get_HF_state, Ansatz
 from .players import Solver, Proposer
