@@ -31,10 +31,8 @@ class BasicTraining:
     def calculate_exact(self):
 
         self.H = self.hamiltonian.to_tensor()
-        #eigvals, eigvectors = torch.linalg.eigh(self.H)
         eigvals = torch.linalg.eigvalsh(self.H)
         self.exact_energy = eigvals[..., 0]
-        #self.ground_state = eigvectors[..., 0]
 
     def calculate_uccsd(self):
 
@@ -48,19 +46,10 @@ class BasicTraining:
     def criterion_step(self, retain_graph=False):
 
         energy_loss = self.huberloss(self.exact_energy, self.uccsd_energy)
-        #inner = (self.ground_state.conj() * self.uccsd_state).sum(dim=-1)
-        #groundstate_loss = 1 - (inner.conj() * inner).real
 
         mel = energy_loss.mean()
-        #gsl = groundstate_loss.mean()
-        #print(f'Energy loss = {mel}, Ground State loss = {gsl}, Exact = {self.exact_energy.tolist()}, UCCSD = {self.uccsd_energy.tolist()}')
         self.loss = mel
         self.loss.backward(retain_graph=retain_graph)
-        #for name, param in self.solver.named_parameters():
-        #    if param.grad is None:
-        #        print(f"[No grad] {name}")
-        #    else:
-        #        print(f"[OK grad] {name}, grad norm: {param.grad.norm()}")
 
     def generate(self):
         pass
