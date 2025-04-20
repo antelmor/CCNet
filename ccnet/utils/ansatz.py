@@ -34,7 +34,7 @@ class Ansatz(AntiHermitianOp):
         if init_state.shape not in acceptable_shapes:
             raise ValueError(f"'init_state' shape is inconsistent. Must be {acceptable_shapes}")
 
-        self._state0 = init_state
+        self._state0 = init_state.to(self.device)
 
     def get_propagator(self, angles=None):
 
