@@ -71,26 +71,38 @@ class Proposer(Player):
 class Solver(Player):
 
     def __init__(self, pool_size=5, **kwargs):
-        super(Solver, self).__init__(**kwargs)
-        
+        super(Solver, self).__init__(**kwargs) 
         self.pool_size = pool_size
+
         width = kwargs.pop('width', 64)
-        self.head = nn.Sequential(
-            nn.Linear(width, pool_size*self.size),
-            nn.Tanh()
-        )
+        num_states = kwargs.pop('num_states', 2)
+
+        num_first_pairs = comb(num_states, 2)
+        num_second_pairs = comb(num_first_pairs, 2)
+        self.out_size = num_second_pairs + 2*num_first_pairs + num_states
+
+        self.head = nn.Linear(width, pool_size*self.out_size)
+
+    def discretize(self, x):
+        x = x - x.max(dim=-1, keepdim=True)[0]
+
+        return heaviside(x)
 
     def forward(self, x):
         
         x = self.base_fc(x)
-        x = self.head(x).reshape(-1, self.pool_size, self.size)
+        x = self.head(x).reshape(-1, self.pool_size, self.out_size)
+        coefficients = self.discretize(x)
 
-        return x
+        return coefficients
 
     def update_ansatz(self, inputs, ansatz):
         
         coeffs = self.forward(inputs)
-        ansatz.update_from_flat_coefficients(coeffs)
+        idiag = ansatz._diagonal_index
+        ansatz._coefficients = coeffs.to(torch.complex128)
+        ansatz._coefficients[..., :idiag] *= 1j
+        #ansatz._coefficients[..., idiag:] *= torch.exp(1j*torch.pi*coeffs[..., idiag:])
         ansatz._tensor = ansatz.to_tensor()
 
     def generate_ansatz(self, inputs):
@@ -103,7 +115,7 @@ class Solver(Player):
 
         return ansatz
 
-    def solve(self, hamiltonian):
+    def assemble_vqe(self, hamiltonian, **options):
 
         if hamiltonian.num_spin_orbitals != self.num_states:
             raise ValueError(
@@ -114,13 +126,6 @@ class Solver(Player):
         coefficients = hamiltonian.coefficients
         inputs = torch.concatenate([coefficients.real, coefficients.imag[:, ir:]], dim=1)
         
-        H = hamiltonian.to_tensor()
         ansatz = self.generate_ansatz(inputs)
 
-        propagator = ansatz.get_propagator()
-        uccsd_state = (propagator * ansatz._state0[..., None, :]).sum(dim=-1)
-        uccsd_energy = (
-            uccsd_state[..., None].conj() * H * uccsd_state[..., None, :]
-        ).sum(dim=(-1, -2)).real
-
-        return uccsd_energy, uccsd_state
+        return VQE(hamiltonian, ansatz, **options)
