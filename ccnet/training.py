@@ -34,21 +34,24 @@ class BasicTraining:
         eigvals = torch.linalg.eigvalsh(self.H)
         self.exact_energy = eigvals[..., 0]
 
-    def calculate_uccsd(self):
+    def diversity_loss(self):
 
-        propagator = self.ansatz.get_propagator()
-        gstate = (propagator * self.ansatz._state0[..., None, :]).sum(dim=-1)
-        self.uccsd_energy = (
-            gstate[..., None].conj() * self.H * gstate[..., None, :]
-        ).sum(dim=(-1, -2)).real
-        self.uccsd_state = gstate
+        coefficients = self.vqe.ansatz.coefficients
+        normsum = ( coefficients*coefficients.conj() ).sum(dim=-1)
+        x = 4*(normsum.real - 1)
+        loss = 2*torch.cosh(x) - 2
+
+        return loss
 
     def criterion_step(self, retain_graph=False):
 
-        energy_loss = self.huberloss(self.exact_energy, self.uccsd_energy)
+        self.vqe.run(**self.vqe_options)
+        energy_loss = self.huberloss(self.exact_energy, self.vqe.energy)
 
         mel = energy_loss.mean()
-        self.loss = mel
+        mdl = self.diversity_loss().mean()
+
+        self.loss = mel + mdl
         self.loss.backward(retain_graph=retain_graph)
 
     def generate(self):
@@ -56,16 +59,19 @@ class BasicTraining:
         
     def run(self, 
             training_steps=100,
-            num_epochs=4,
+            num_epochs=1,
             batch_size=5,
             retain_graph=False,
             verbosity=torch.inf,
             delta=1.0,
             lr=1e-3,
-            weight_decay=1e-4
+            weight_decay=1e-4,
+            vqe_options={}
         ):
 
         self.solver.train()
+        self.vqe_options = vqe_options
+
         base_optimizer = torch.optim.Adam(self.solver.parameters(), lr=lr, weight_decay=weight_decay)
         optimizer = Lookahead(base_optimizer, k=5, alpha=0.5)
         scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(base_optimizer, T_0=100)
@@ -73,8 +79,8 @@ class BasicTraining:
         self.hamiltonian.coefficients = torch.zeros(
             batch_size, self.hamiltonian.size, dtype=torch.complex128, device=self.device
         ) 
-        self.ansatz = self.solver.generate_ansatz(
-            2*torch.rand(batch_size, self.solver.size, dtype=torch.float64, device=self.device)
+        self.vqe = self.solver.assemble_vqe(
+            self.hamiltonian, optimizer_type=vqe_options.pop('optimizer_type', 'Adam')
         )
         self.huberloss = torch.nn.HuberLoss(delta=delta)
 
@@ -86,12 +92,11 @@ class BasicTraining:
 
             for epoch in range(num_epochs):
                 optimizer.zero_grad()
-                self.solver.update_ansatz(self.inputs, self.ansatz)
-                self.calculate_uccsd()
+                self.solver.update_ansatz(self.inputs, self.vqe.ansatz)
                 self.criterion_step(retain_graph=retain_graph)
                 optimizer.step()
                 scheduler.step()
-            self.energy_diff.append([self.exact_energy.mean(), self.uccsd_energy.mean()])
+            self.energy_diff.append([self.exact_energy.mean(), self.vqe.energy.mean()])
 
             if step % verbosity == 0:
                 print(f'Step {step}, Loss = {self.loss.item()}')
