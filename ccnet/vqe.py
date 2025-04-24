@@ -47,11 +47,10 @@ class VQE:
     def compute_energy(self):
 
         propagator = self.ansatz.get_propagator(self.angles)
-        ground_state = torch.einsum('...ij,...j->...i', propagator, self.ansatz.init_state)
-        self.energy = torch.einsum(
-            '...i,...ij,...j->...', 
-            ground_state.conj(), self.H, ground_state
-        ).real
+        ground_state = (propagator * self.ansatz._state0[..., None, :]).sum(dim=-1)
+        self.energy = (
+            ground_state[..., None].conj() * self.H * ground_state[..., None, :]
+        ).sum(dim=(-1, -2)).real
 
     def closure(self):
 
@@ -78,6 +77,4 @@ class VQE:
                 break
 
         self.propagator = self.ansatz.get_propagator(self.angles)
-        self.ground_state = torch.einsum(
-            '...ij,...j->...i', self.propagator, self.ansatz.init_state
-        )
+        self.ground_state = (self.propagator * self.ansatz._state0[..., None, :]).sum(dim=-1)
