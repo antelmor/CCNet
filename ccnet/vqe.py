@@ -21,7 +21,9 @@ class VQE:
         self.num_qubits = hamiltonian.num_spin_orbitals
 
         shape = ansatz.coefficients.shape[:-1]
-        self.angles = torch.rand(shape, dtype=torch.float64, requires_grad=True)
+        self.angles = torch.rand(
+            shape, dtype=torch.float64, requires_grad=True, device=self.ansatz.device
+        )
 
         if ansatz.init_state is None:
             hf_state = get_HF_state(self.num_qubits, num_electrons=num_electrons)
@@ -65,7 +67,7 @@ class VQE:
         
         self.modify_optimizer(**kwargs)
         self.H = self.hamiltonian.to_tensor()
-        self.energy = torch.zeros(self.H.shape[0], dtype=torch.float64)
+        self.energy = torch.zeros(self.H.shape[0], dtype=torch.float64, device=self.ansatz.device)
 
         for _ in range(max_iterations):
             previous = self.energy
