@@ -70,9 +70,10 @@ class Proposer(Player):
 
 class Solver(Player):
 
-    def __init__(self, pool_size=5, **kwargs):
+    def __init__(self, pool_size=5, k_param=10.0, **kwargs):
         super(Solver, self).__init__(**kwargs) 
         self.pool_size = pool_size
+        self.k = k_param
 
         width = kwargs.pop('width', 64)
         num_states = kwargs.pop('num_states', 2)
@@ -86,7 +87,7 @@ class Solver(Player):
     def discretize(self, x):
         x = x - x.max(dim=-1, keepdim=True)[0]
 
-        return heaviside(x)
+        return heaviside(x, k=self.k)
 
     def forward(self, x):
         

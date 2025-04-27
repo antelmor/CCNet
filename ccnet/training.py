@@ -11,6 +11,7 @@ class BasicTraining:
             solver=None, 
             num_states=None, 
             pool_size=5,
+            k_param=10.0,
             width=64,
             depth=4
         ):
@@ -20,7 +21,9 @@ class BasicTraining:
         if solver is None and num_states is None:
             raise ValueError("You must provide the solver or the number of states.")
         elif solver is None:
-            solver = Solver(num_states=num_states, pool_size=pool_size, width=width, depth=depth).double()
+            solver = Solver(
+                num_states=num_states, pool_size=pool_size, k_param=k_param, width=width, depth=depth
+            ).double()
 
         self.solver = solver.to(self.device)
         self.num_states = solver.num_states
