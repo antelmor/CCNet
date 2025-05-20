@@ -36,12 +36,13 @@ class BasicTraining:
 
     def calculate_uccsd(self):
 
-        propagator = self.ansatz.get_propagator()
-        gstate = (propagator * self.ansatz._state0[..., None, :]).sum(dim=-1)
+        ground_state = self.ansatz.ground_state()
         self.uccsd_energy = (
-            gstate[..., None].conj() * self.H * gstate[..., None, :]
-        ).sum(dim=(-1, -2)).real
-        self.uccsd_state = gstate
+            ground_state[..., None].conj() * self.H[..., None, :, :] * ground_state[..., None, :]
+        ).sum(dim=(-1, -2)).real.min(dim=-1).values
+
+        self.uccsd_state = ground_state
+        self.uccsd_energy = torch.minimum(self.trivial_energy, self.uccsd_energy)    
 
     def criterion_step(self, retain_graph=False):
 
@@ -74,7 +75,7 @@ class BasicTraining:
             batch_size, self.hamiltonian.size, dtype=torch.complex128, device=self.device
         ) 
         self.ansatz = self.solver.generate_ansatz(
-            2*torch.rand(batch_size, self.solver.size, dtype=torch.float64, device=self.device)
+            2*torch.rand(batch_size, self.solver.size, dtype=torch.float64, device=self.device) - 1
         )
         self.huberloss = torch.nn.HuberLoss(delta=delta)
 
@@ -83,6 +84,7 @@ class BasicTraining:
             self.inputs = self.generate()
             self.hamiltonian.update_from_flat_coefficients(self.inputs)
             self.calculate_exact()
+            self.trivial_energy = self.H[..., [0, -1], [0, -1]].real.min(dim=-1).values
 
             for epoch in range(num_epochs):
                 optimizer.zero_grad()

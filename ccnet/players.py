@@ -74,16 +74,17 @@ class Solver(Player):
         super(Solver, self).__init__(**kwargs)
         
         self.pool_size = pool_size
+        self.num_sectors = self.num_states - 1
         width = kwargs.pop('width', 64)
         self.head = nn.Sequential(
-            nn.Linear(width, pool_size*self.size),
+            nn.Linear(width, pool_size*self.num_sectors*self.size),
             nn.Tanh()
         )
 
     def forward(self, x):
         
         x = self.base_fc(x)
-        x = self.head(x).reshape(-1, self.pool_size, self.size)
+        x = self.head(x).reshape(-1, self.num_sectors, self.pool_size, self.size)
 
         return x
 
@@ -91,14 +92,20 @@ class Solver(Player):
         
         coeffs = self.forward(inputs)
         ansatz.update_from_flat_coefficients(coeffs)
-        ansatz._tensor = ansatz.to_tensor()
 
     def generate_ansatz(self, inputs):
 
         ansatz = Ansatz(
-                self.num_states, num_parameters=self.pool_size, batch_shape=inputs.shape[:-1]
+                self.num_states, 
+                num_parameters=self.pool_size, 
+                batch_shape=(*inputs.shape[:-1], self.num_sectors)
         )
-        ansatz.init_state = get_HF_state(self.num_states, num_electrons=self.num_states // 2)
+
+        init_state = torch.zeros(self.num_sectors, 1 << self.num_states, dtype=torch.complex128)
+        init_indices = (1 << torch.arange(self.num_states)[1:]) - 1
+        init_state[torch.arange(self.num_sectors), init_indices] = 1.0
+        ansatz.init_state = init_state
+        
         self.update_ansatz(inputs, ansatz)
 
         return ansatz
@@ -117,10 +124,17 @@ class Solver(Player):
         H = hamiltonian.to_tensor()
         ansatz = self.generate_ansatz(inputs)
 
-        propagator = ansatz.get_propagator()
-        uccsd_state = (propagator * ansatz._state0[..., None, :]).sum(dim=-1)
+        uccsd_state = torch.zeros(
+                *ansatz.coefficients.shape[:-3], 
+                self.num_states, 
+                1 << self.num_states, 
+                dtype=torch.complex128
+        )
+        uccsd_state[..., -1, -1] = 1.0
+
+        uccsd_state[..., :-1, :] = ansatz.ground_state()
         uccsd_energy = (
-            uccsd_state[..., None].conj() * H * uccsd_state[..., None, :]
+            uccsd_state[..., None].conj() * H[..., None, :, :] * uccsd_state[..., None, :]
         ).sum(dim=(-1, -2)).real
 
         return uccsd_energy, uccsd_state
