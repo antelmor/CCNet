@@ -9,17 +9,17 @@ class Ansatz(AntiHermitianOp):
         shape = (*batch_shape, num_parameters)
         super().__init__(num_spin_orbitals, batch_shape=shape, device=device)
         self.num_parameters = num_parameters
-        
-        n_sectors = num_spin_orbitals + 1
-        init_state = torch.zeros(n_sectors, 1 << num_spin_orbitals, dtype=torch.complex128)
-        init_indices = (1 << torch.arange(n_sectors)) - 1
-        init_state[torch.arange(n_sectors), init_indices] = 1.0
-        self.init_state = init_state
+        self._state0 = None 
 
     @AntiHermitianOp.coefficients.setter
     def coefficients(self, values):
 
         AntiHermitianOp.coefficients.fset(self, values)
+        self._tensor = self.to_tensor()
+
+    def update_from_flat_coefficients(self, values):
+
+        super(Ansatz, self).update_from_flat_coefficients(values)
         self._tensor = self.to_tensor()
 
     @property
@@ -52,3 +52,10 @@ class Ansatz(AntiHermitianOp):
             propagator = propagator @ mat
 
         return propagator
+
+    def ground_state(self, angles=None):
+
+        propagator = self.get_propagator(angles=angles)
+        gstate = (propagator * self._state0[..., None, :]).sum(dim=-1)
+
+        return gstate
