@@ -5,7 +5,7 @@ from math import comb
 from .vqe import VQE
 from .utils import get_HF_state, Ansatz, heaviside
 from .operator import HermitianOp
-from .utils import ResidualBlock
+from .utils import ResidualBlock, SMU
 
 class Player(nn.Module):
 
@@ -21,7 +21,7 @@ class Player(nn.Module):
         self.base_fc = nn.Sequential(
             nn.Linear(self.size, width),
             nn.BatchNorm1d(width),
-            nn.ReLU(),
+            SMU(beta=5.0),
             *layers
         )
 

@@ -1,4 +1,5 @@
 from torch import nn
+from .smu import SMU
 
 class ResidualBlock(nn.Module):
     def __init__(self, width):
@@ -6,7 +7,7 @@ class ResidualBlock(nn.Module):
         self.block = nn.Sequential(
             nn.Linear(width, width),
             nn.BatchNorm1d(width),
-            nn.ReLU(),
+            SMU(),
             nn.Linear(width, width),
             nn.BatchNorm1d(width)
         )
