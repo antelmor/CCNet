@@ -101,7 +101,12 @@ class Solver(Player):
                 batch_shape=(*inputs.shape[:-1], self.num_sectors)
         )
 
-        init_state = torch.zeros(self.num_sectors, 1 << self.num_states, dtype=torch.complex128)
+        init_state = torch.zeros(
+                self.num_sectors, 
+                1 << self.num_states, 
+                dtype=torch.complex128,
+                device=next(self.parameters()).device
+        )
         init_indices = (1 << torch.arange(self.num_states)[1:]) - 1
         init_state[torch.arange(self.num_sectors), init_indices] = 1.0
         ansatz.init_state = init_state
