@@ -12,4 +12,4 @@ class SMU(nn.Module):
 
     def forward(self, x):
         beta = torch.exp(self.log_beta)
-        return x * torch.erf(beta * x)
+        return x * (1.0 + torch.erf(beta * x))
