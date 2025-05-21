@@ -20,7 +20,6 @@ class Player(nn.Module):
         layers = [ResidualBlock(width) for _ in range(depth-1)]
         self.base_fc = nn.Sequential(
             nn.Linear(self.size, width),
-            nn.BatchNorm1d(width),
             SMU(beta=5.0),
             *layers
         )

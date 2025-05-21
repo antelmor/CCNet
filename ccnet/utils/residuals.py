@@ -6,10 +6,8 @@ class ResidualBlock(nn.Module):
         super().__init__()
         self.block = nn.Sequential(
             nn.Linear(width, width),
-            nn.BatchNorm1d(width),
             SMU(),
             nn.Linear(width, width),
-            nn.BatchNorm1d(width)
         )
 
     def forward(self, x):
