@@ -5,6 +5,14 @@ from .utils import get_HF_state, Ansatz
 from .players import Solver, Proposer
 from .operator import HermitianOp
 
+def get_optimizer(parameters, **kwargs):
+
+    base_optimizer = torch.optim.Adam(parameters, **kwargs)
+    optimizer = Lookahead(base_optimizer, k=5, alpha=0.5)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(base_optimizer, T_0=100)
+
+    return optimizer, scheduler
+
 class BasicTraining:
 
     def __init__(self, 
@@ -69,14 +77,11 @@ class BasicTraining:
             retain_graph=False,
             verbosity=torch.inf,
             delta=1.0,
-            lr=1e-3,
-            weight_decay=1e-4
+            optimizer_options={}
         ):
 
         self.solver.train()
-        base_optimizer = torch.optim.Adam(self.solver.parameters(), lr=lr, weight_decay=weight_decay)
-        optimizer = Lookahead(base_optimizer, k=5, alpha=0.5)
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(base_optimizer, T_0=100)
+        optimizer, scheduler = get_optimizer(self.solver.parameters(), **optimizer_options)
 
         self.hamiltonian.coefficients = torch.zeros(
             batch_size, self.hamiltonian.size, dtype=torch.complex128, device=self.device
@@ -201,7 +206,15 @@ class Game(BasicTraining):
 
         self.proposer.train()
         self.inputs_shape = (batch_size, self.proposer.size)
-        self.prop_optimizer = torch.optim.Adam(self.proposer.parameters(), lr=1e-3, maximize=True)
+
+        optimizer_options = kwargs.pop('optimizer_options', {})
+        optimizer_options.pop('maximize', None)
+        
+        self.prop_optimizer, self.scheduler = get_optimizer(
+            self.proposer.parameters(),
+            maximize=True,
+            **optimizer_options,
+        )
 
         kwargs.pop('retain_graph', None)
         super().run(batch_size=batch_size, retain_graph=True, **kwargs)
