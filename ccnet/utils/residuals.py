@@ -2,11 +2,11 @@ from torch import nn
 from .smu import SMU
 
 class ResidualBlock(nn.Module):
-    def __init__(self, width):
+    def __init__(self, width, smooth=True):
         super().__init__()
         self.block = nn.Sequential(
             nn.Linear(width, width),
-            SMU(),
+            SMU() if smooth else nn.ReLU(),
             nn.Linear(width, width),
         )
 
