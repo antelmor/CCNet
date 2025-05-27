@@ -166,7 +166,9 @@ class Game(BasicTraining):
         )
 
         if proposer is None:
-            proposer = Proposer(num_states=self.num_states).double().to(self.device)
+            proposer = Proposer(
+                num_states=self.num_states, width=width, depth=depth
+            ).double().to(self.device)
 
         if proposer.num_states != self.solver.num_states:
             raise ValueError(
