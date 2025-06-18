@@ -47,7 +47,7 @@ class Player(nn.Module):
 class Proposer(Player):
 
     def __init__(self, smooth=False, normalized=True, **kwargs):
-        super(Proposer, self).__init__(smooth=smooth, **kwargs)
+        super(Proposer, self).__init__(smooth=smooth, normalized=normalized, **kwargs)
 
         width = kwargs.pop('width', 64)
         self.head = nn.Sequential(
