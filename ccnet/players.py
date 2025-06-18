@@ -9,7 +9,7 @@ from .utils import ResidualBlock, SMU
 
 class Player(nn.Module):
 
-    def __init__(self, num_states=2, width=64, depth=4, smooth=True):
+    def __init__(self, num_states=2, width=64, depth=4, smooth=True, normalized=False):
         super(Player, self).__init__()
         self.num_states = num_states
 
@@ -17,7 +17,10 @@ class Player(nn.Module):
         num_second_pairs = comb(num_first_pairs, 2)
         self.size = 2*num_second_pairs + 3*num_first_pairs + num_states
 
-        layers = [ResidualBlock(width, smooth=smooth) for _ in range(depth-1)]
+        layers = [
+            ResidualBlock(width, smooth=smooth, normalized=normalized) 
+            for _ in range(depth-1)
+        ]
         self.base_fc = nn.Sequential(
             nn.Linear(self.size, width),
             SMU(beta=5.0) if smooth else nn.ReLU(),
@@ -43,7 +46,7 @@ class Player(nn.Module):
 
 class Proposer(Player):
 
-    def __init__(self, smooth=False, **kwargs):
+    def __init__(self, smooth=False, normalized=True, **kwargs):
         super(Proposer, self).__init__(smooth=smooth, **kwargs)
 
         width = kwargs.pop('width', 64)
@@ -85,7 +88,7 @@ class Solver(Player):
         x = self.base_fc(x)
         x = self.head(x).reshape(-1, self.num_sectors, self.pool_size, self.size)
 
-        return x
+        return 2*x
 
     def update_ansatz(self, inputs, ansatz):
         
