@@ -119,12 +119,15 @@ class Random(BasicTraining):
         super().__init__(**kwargs)
 
     def generate(self):
-        inputs = 2*torch.rand(self.inputs_shape, dtype=torch.float64, device=self.device) - 1
+        inputs = 8*torch.rand(self.inputs_shape, dtype=torch.float64, device=self.device) - 4
+        inputs[..., self.max_index:] *= 0.0
         return inputs.requires_grad_()
 
-    def run(self, batch_size=5, **kwargs):
+    def run(self, batch_size=5, max_index=None, **kwargs):
 
-        self.inputs_shape = (batch_size, 2*self.hamiltonian.size - self.hamiltonian._diagonal_index)
+        inputs_size = 2*self.hamiltonian.size - self.hamiltonian._diagonal_index
+        self.max_index = inputs_size if max_index is None else max_index
+        self.inputs_shape = (batch_size, inputs_size)
         super().run(batch_size=batch_size, **kwargs)
 
 class Step(BasicTraining):

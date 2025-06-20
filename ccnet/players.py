@@ -5,7 +5,7 @@ from math import comb
 from .vqe import VQE
 from .utils import get_HF_state, Ansatz, heaviside
 from .operator import HermitianOp
-from .utils import ResidualBlock, SMU
+from .utils import ResidualBlock
 
 class Player(nn.Module):
 
@@ -23,7 +23,7 @@ class Player(nn.Module):
         ]
         self.base_fc = nn.Sequential(
             nn.Linear(self.size, width),
-            SMU(beta=5.0) if smooth else nn.ReLU(),
+            nn.GELU() if smooth else nn.ReLU(),
             *layers
         )
 
@@ -58,7 +58,7 @@ class Proposer(Player):
     def forward(self, x):
         x = super(Proposer, self).forward(x)
 
-        return x
+        return 4*x
 
     def propose_hamiltonian(self, batch_size=1):
 
@@ -78,17 +78,14 @@ class Solver(Player):
         self.pool_size = pool_size
         self.num_sectors = self.num_states - 1
         width = kwargs.pop('width', 64)
-        self.head = nn.Sequential(
-            nn.Linear(width, pool_size*self.num_sectors*self.size),
-            nn.Tanh()
-        )
+        self.head = nn.Linear(width, pool_size*self.num_sectors*self.size)
 
     def forward(self, x):
         
         x = self.base_fc(x)
         x = self.head(x).reshape(-1, self.num_sectors, self.pool_size, self.size)
 
-        return 2*x
+        return x
 
     def update_ansatz(self, inputs, ansatz):
         

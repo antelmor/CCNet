@@ -7,7 +7,7 @@ class ResidualBlock(nn.Module):
 
         layers = [
             nn.Linear(width, width),
-            SMU() if smooth else nn.ReLU(),
+            nn.GELU() if smooth else nn.ReLU(),
             nn.Linear(width, width),
         ]
         if normalized:
