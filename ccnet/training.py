@@ -5,6 +5,14 @@ from .utils import get_HF_state, Ansatz
 from .players import Solver, Proposer
 from .operator import HermitianOp
 
+def get_optimizer(parameters, **kwargs):
+
+    base_optimizer = torch.optim.Adam(parameters, **kwargs)
+    optimizer = Lookahead(base_optimizer, k=5, alpha=0.5)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(base_optimizer, T_0=100)
+
+    return optimizer, scheduler
+
 class BasicTraining:
 
     def __init__(self, 
@@ -13,7 +21,9 @@ class BasicTraining:
             pool_size=5,
             k_param=10.0,
             width=64,
-            depth=4
+            depth=4,
+            smooth_solver=True,
+            normalized_solver=False
         ):
 
         self.device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
@@ -22,7 +32,13 @@ class BasicTraining:
             raise ValueError("You must provide the solver or the number of states.")
         elif solver is None:
             solver = Solver(
-                num_states=num_states, pool_size=pool_size, k_param=k_param, width=width, depth=depth
+                num_states=num_states, 
+                pool_size=pool_size,
+                k_param=k_param,
+                width=width, 
+                depth=depth,
+                smooth=smooth_solver,
+                normalized=normalized_solver
             ).double()
 
         self.solver = solver.to(self.device)
@@ -67,17 +83,13 @@ class BasicTraining:
             retain_graph=False,
             verbosity=torch.inf,
             delta=1.0,
-            lr=1e-3,
-            weight_decay=1e-4,
-            vqe_options={}
+            vqe_options={},
+            optimizer_options={}
         ):
 
         self.solver.train()
         self.vqe_options = vqe_options
-
-        base_optimizer = torch.optim.Adam(self.solver.parameters(), lr=lr, weight_decay=weight_decay)
-        optimizer = Lookahead(base_optimizer, k=5, alpha=0.5)
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(base_optimizer, T_0=100)
+        optimizer, scheduler = get_optimizer(self.solver.parameters(), **optimizer_options)
 
         self.hamiltonian.coefficients = torch.zeros(
             batch_size, self.hamiltonian.size, dtype=torch.complex128, device=self.device
@@ -92,6 +104,7 @@ class BasicTraining:
             self.inputs = self.generate()
             self.hamiltonian.update_from_flat_coefficients(self.inputs)
             self.calculate_exact()
+            self.trivial_energy = self.H[..., [0, -1], [0, -1]].real.min(dim=-1).values
 
             for epoch in range(num_epochs):
                 optimizer.zero_grad()
@@ -111,12 +124,15 @@ class Random(BasicTraining):
         super().__init__(**kwargs)
 
     def generate(self):
-        inputs = 2*torch.rand(self.inputs_shape, dtype=torch.float64, device=self.device) - 1
+        inputs = 8*torch.rand(self.inputs_shape, dtype=torch.float64, device=self.device) - 4
+        inputs[..., self.max_index:] *= 0.0
         return inputs.requires_grad_()
 
-    def run(self, batch_size=5, **kwargs):
+    def run(self, batch_size=5, max_index=None, **kwargs):
 
-        self.inputs_shape = (batch_size, 2*self.hamiltonian.size - self.hamiltonian._diagonal_index)
+        inputs_size = 2*self.hamiltonian.size - self.hamiltonian._diagonal_index
+        self.max_index = inputs_size if max_index is None else max_index
+        self.inputs_shape = (batch_size, inputs_size)
         super().run(batch_size=batch_size, **kwargs)
 
 class Step(BasicTraining):
@@ -152,8 +168,12 @@ class Game(BasicTraining):
             num_states=None,
             pool_size=5,
             width=64,
-            depth=4
-            ):
+            depth=4,
+            smooth_solver=True,
+            smooth_proposer=False,
+            normalized_solver=False,
+            normalized_proposer=True
+        ):
 
         if solver is None and num_states is None:
             if proposer is None:
@@ -168,11 +188,19 @@ class Game(BasicTraining):
             num_states=num_states,
             pool_size=pool_size,
             width=width,
-            depth=depth
+            depth=depth,
+            smooth_solver=smooth_solver,
+            normalized_solver=normalized_solver
         )
 
         if proposer is None:
-            proposer = Proposer(num_states=self.num_states).double().to(self.device)
+            proposer = Proposer(
+                num_states=self.num_states, 
+                width=width, 
+                depth=depth, 
+                smooth=smooth_proposer,
+                normalized=normalized_proposer
+            ).double().to(self.device)
 
         if proposer.num_states != self.solver.num_states:
             raise ValueError(
@@ -195,7 +223,15 @@ class Game(BasicTraining):
 
         self.proposer.train()
         self.inputs_shape = (batch_size, self.proposer.size)
-        self.prop_optimizer = torch.optim.Adam(self.proposer.parameters(), lr=1e-3, maximize=True)
+
+        optimizer_options = kwargs.pop('optimizer_options', {})
+        optimizer_options.pop('maximize', None)
+        
+        self.prop_optimizer, self.scheduler = get_optimizer(
+            self.proposer.parameters(),
+            maximize=True,
+            **optimizer_options,
+        )
 
         kwargs.pop('retain_graph', None)
         super().run(batch_size=batch_size, retain_graph=True, **kwargs)

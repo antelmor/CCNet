@@ -9,12 +9,17 @@ class Ansatz(AntiHermitianOp):
         shape = (*batch_shape, num_parameters)
         super().__init__(num_spin_orbitals, batch_shape=shape, device=device)
         self.num_parameters = num_parameters
-        self._state0 = None
+        self._state0 = None 
 
     @AntiHermitianOp.coefficients.setter
     def coefficients(self, values):
 
         AntiHermitianOp.coefficients.fset(self, values)
+        self._tensor = self.to_tensor()
+
+    def update_from_flat_coefficients(self, values):
+
+        super(Ansatz, self).update_from_flat_coefficients(values)
         self._tensor = self.to_tensor()
 
     @property
@@ -30,9 +35,8 @@ class Ansatz(AntiHermitianOp):
             raise type(err)(f"'init_state' must be a tensor like object with numerical data.")
 
         size = 1 << self.num_spin_orbitals
-        acceptable_shapes = [(*self.coefficients.shape[:-2], size), (size,)]
-        if init_state.shape not in acceptable_shapes:
-            raise ValueError(f"'init_state' shape is inconsistent. Must be {acceptable_shapes}")
+        if init_state.shape[-1] != size:
+            raise ValueError(f"'init_state' size is inconsistent. Last dim must be '{size}'")
 
         self._state0 = init_state.to(self.device)
 
@@ -48,3 +52,10 @@ class Ansatz(AntiHermitianOp):
             propagator = propagator @ mat
 
         return propagator
+
+    def ground_state(self, angles=None):
+
+        propagator = self.get_propagator(angles=angles)
+        gstate = (propagator * self._state0[..., None, :]).sum(dim=-1)
+
+        return gstate

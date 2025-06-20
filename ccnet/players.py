@@ -9,7 +9,7 @@ from .utils import ResidualBlock
 
 class Player(nn.Module):
 
-    def __init__(self, num_states=2, width=64, depth=4):
+    def __init__(self, num_states=2, width=64, depth=4, smooth=True, normalized=False):
         super(Player, self).__init__()
         self.num_states = num_states
 
@@ -17,11 +17,13 @@ class Player(nn.Module):
         num_second_pairs = comb(num_first_pairs, 2)
         self.size = 2*num_second_pairs + 3*num_first_pairs + num_states
 
-        layers = [ResidualBlock(width) for _ in range(depth-1)]
+        layers = [
+            ResidualBlock(width, smooth=smooth, normalized=normalized) 
+            for _ in range(depth-1)
+        ]
         self.base_fc = nn.Sequential(
             nn.Linear(self.size, width),
-            nn.BatchNorm1d(width),
-            nn.ReLU(),
+            nn.GELU() if smooth else nn.ReLU(),
             *layers
         )
 
@@ -44,8 +46,8 @@ class Player(nn.Module):
 
 class Proposer(Player):
 
-    def __init__(self, **kwargs):
-        super(Proposer, self).__init__(**kwargs)
+    def __init__(self, smooth=False, normalized=True, **kwargs):
+        super(Proposer, self).__init__(smooth=smooth, normalized=normalized, **kwargs)
 
         width = kwargs.pop('width', 64)
         self.head = nn.Sequential(
@@ -56,7 +58,7 @@ class Proposer(Player):
     def forward(self, x):
         x = super(Proposer, self).forward(x)
 
-        return x
+        return 4*x
 
     def propose_hamiltonian(self, batch_size=1):
 
@@ -109,9 +111,21 @@ class Solver(Player):
     def generate_ansatz(self, inputs):
 
         ansatz = Ansatz(
-                self.num_states, num_parameters=self.pool_size, batch_shape=inputs.shape[:-1]
+                self.num_states, 
+                num_parameters=self.pool_size, 
+                batch_shape=(*inputs.shape[:-1], self.num_sectors)
         )
-        ansatz.init_state = get_HF_state(self.num_states, num_electrons=self.num_states // 2)
+
+        init_state = torch.zeros(
+                self.num_sectors, 
+                1 << self.num_states, 
+                dtype=torch.complex128,
+                device=next(self.parameters()).device
+        )
+        init_indices = (1 << torch.arange(self.num_states)[1:]) - 1
+        init_state[torch.arange(self.num_sectors), init_indices] = 1.0
+        ansatz.init_state = init_state
+        
         self.update_ansatz(inputs, ansatz)
 
         return ansatz
