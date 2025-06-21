@@ -72,19 +72,33 @@ class Proposer(Player):
 
 class Solver(Player):
 
-    def __init__(self, pool_size=5, k_param=10.0, **kwargs):
-        super(Solver, self).__init__(**kwargs) 
+    def __init__(self, 
+            pool_size=5, 
+            k_param=10.0,
+            num_states=2,
+            width=64,
+            depth=2,
+            smooth=False,
+            normalized=False
+        ):
+        super(Solver, self).__init__(
+            num_states=num_states,
+            width=width,
+            depth=depth,
+            smooth=smooth,
+            normalized=normalized
+        ) 
         self.pool_size = pool_size
         self.k = k_param
 
-        width = kwargs.pop('width', 64)
-        num_states = kwargs.pop('num_states', 2)
-
         num_first_pairs = comb(num_states, 2)
         num_second_pairs = comb(num_first_pairs, 2)
+        self.num_sectors = num_states + 1
         self.out_size = num_second_pairs + 2*num_first_pairs + num_states
+        self.coeff_size = pool_size * self.out_size
+        self.init_indices = (1 << torch.arange(self.num_sectors)) - 1
 
-        self.head = nn.Linear(width, pool_size*self.out_size)
+        self.head = nn.Linear(width, self.coeff_size + self.num_sectors)
 
     def discretize(self, x):
         x = x - x.max(dim=-1, keepdim=True)[0]
@@ -94,36 +108,41 @@ class Solver(Player):
     def forward(self, x):
         
         x = self.base_fc(x)
-        x = self.head(x).reshape(-1, self.pool_size, self.out_size)
-        coefficients = self.discretize(x)
+        x = self.head(x)
 
-        return coefficients
+        coefficients = x[..., :self.coeff_size].reshape(-1, self.pool_size, self.out_size)
+        init_state_weights = x[..., self.coeff_size:]
+
+        coefficients = self.discretize(coefficients)
+        init_state_weights = self.discretize(init_state_weights)
+
+        return coefficients, init_state_weights
 
     def update_ansatz(self, inputs, ansatz):
         
-        coeffs = self.forward(inputs)
+        coeffs, weights = self.forward(inputs)
         idiag = ansatz._diagonal_index
         ansatz._coefficients = coeffs.to(torch.complex128)
         ansatz._coefficients[..., :idiag] *= 1j
-        #ansatz._coefficients[..., idiag:] *= torch.exp(1j*torch.pi*coeffs[..., idiag:])
         ansatz._tensor = ansatz.to_tensor()
+
+        new_state0 = torch.zeros_like(ansatz._state0)
+        new_state0[..., self.init_indices] = torch.complex(weights, torch.zeros_like(weights))
+        ansatz._state0 = new_state0
 
     def generate_ansatz(self, inputs):
 
         ansatz = Ansatz(
                 self.num_states, 
                 num_parameters=self.pool_size, 
-                batch_shape=(*inputs.shape[:-1], self.num_sectors)
+                batch_shape=inputs.shape[:-1]
         )
-
         init_state = torch.zeros(
-                self.num_sectors, 
+                *inputs.shape[:-1], 
                 1 << self.num_states, 
                 dtype=torch.complex128,
                 device=next(self.parameters()).device
         )
-        init_indices = (1 << torch.arange(self.num_states)[1:]) - 1
-        init_state[torch.arange(self.num_sectors), init_indices] = 1.0
         ansatz.init_state = init_state
         
         self.update_ansatz(inputs, ansatz)

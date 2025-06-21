@@ -104,7 +104,6 @@ class BasicTraining:
             self.inputs = self.generate()
             self.hamiltonian.update_from_flat_coefficients(self.inputs)
             self.calculate_exact()
-            self.trivial_energy = self.H[..., [0, -1], [0, -1]].real.min(dim=-1).values
 
             for epoch in range(num_epochs):
                 optimizer.zero_grad()
