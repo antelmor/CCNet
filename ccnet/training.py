@@ -22,7 +22,7 @@ class BasicTraining:
             k_param=10.0,
             width=64,
             depth=4,
-            smooth_solver=True,
+            smooth_solver=False,
             normalized_solver=False
         ):
 
