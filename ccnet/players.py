@@ -77,14 +77,16 @@ class Solver(Player):
         
         self.pool_size = pool_size
         width = kwargs.pop('width', 64)
-        self.head = nn.Linear(width, pool_size*self.size)
+        self.head = nn.Linear(width, pool_size*(self.size + 1))
 
     def forward(self, x):
         
         x = self.base_fc(x)
-        x = self.head(x).reshape(-1, self.pool_size, self.size)
+        x = self.head(x).reshape(-1, self.pool_size, self.size+1)
+        factor = x[..., -1]
+        coefficients = x[..., :-1]
 
-        return x
+        return factor[..., None] * coefficients
 
     def update_ansatz(self, inputs, ansatz):
         
