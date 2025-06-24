@@ -7,7 +7,7 @@ from .operator import HermitianOp
 
 def get_optimizer(parameters, **kwargs):
 
-    base_optimizer = torch.optim.Adam(parameters, **kwargs)
+    base_optimizer = torch.optim.RAdam(parameters, **kwargs)
     optimizer = Lookahead(base_optimizer, k=5, alpha=0.5)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(base_optimizer, T_0=100)
 
