@@ -76,14 +76,13 @@ class Solver(Player):
         super(Solver, self).__init__(**kwargs)
         
         self.pool_size = pool_size
-        self.num_sectors = self.num_states - 1
         width = kwargs.pop('width', 64)
-        self.head = nn.Linear(width, pool_size*self.num_sectors*self.size)
+        self.head = nn.Linear(width, pool_size*self.size)
 
     def forward(self, x):
         
         x = self.base_fc(x)
-        x = self.head(x).reshape(-1, self.num_sectors, self.pool_size, self.size)
+        x = self.head(x).reshape(-1, self.pool_size, self.size)
 
         return x
 
@@ -97,17 +96,17 @@ class Solver(Player):
         ansatz = Ansatz(
                 self.num_states, 
                 num_parameters=self.pool_size, 
-                batch_shape=(*inputs.shape[:-1], self.num_sectors)
+                batch_shape=inputs.shape[:-1]
         )
 
         init_state = torch.zeros(
-                self.num_sectors, 
+                self.num_states + 1, 
                 1 << self.num_states, 
                 dtype=torch.complex128,
                 device=next(self.parameters()).device
         )
-        init_indices = (1 << torch.arange(self.num_states)[1:]) - 1
-        init_state[torch.arange(self.num_sectors), init_indices] = 1.0
+        init_indices = (1 << torch.arange(self.num_states+1)) - 1
+        init_state[torch.arange(self.num_states+1), init_indices] = 1.0
         ansatz.init_state = init_state
         
         self.update_ansatz(inputs, ansatz)

@@ -58,8 +58,7 @@ class BasicTraining:
             ground_state[..., None].conj() * self.H[..., None, :, :] * ground_state[..., None, :]
         ).sum(dim=(-1, -2)).real.min(dim=-1).values
 
-        self.uccsd_state = ground_state
-        self.uccsd_energy = torch.minimum(self.trivial_energy, self.uccsd_energy)    
+        self.uccsd_state = ground_state  
 
     def criterion_step(self, retain_graph=False):
 
@@ -98,7 +97,6 @@ class BasicTraining:
             self.inputs = self.generate()
             self.hamiltonian.update_from_flat_coefficients(self.inputs)
             self.calculate_exact()
-            self.trivial_energy = self.H[..., [0, -1], [0, -1]].real.min(dim=-1).values
 
             for epoch in range(num_epochs):
                 optimizer.zero_grad()

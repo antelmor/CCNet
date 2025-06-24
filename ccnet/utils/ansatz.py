@@ -56,6 +56,6 @@ class Ansatz(AntiHermitianOp):
     def ground_state(self, angles=None):
 
         propagator = self.get_propagator(angles=angles)
-        gstate = (propagator * self._state0[..., None, :]).sum(dim=-1)
+        gstate = (propagator[..., None, :, :] * self._state0[..., None, :]).sum(dim=-1)
 
         return gstate
