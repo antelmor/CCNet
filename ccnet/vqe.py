@@ -8,7 +8,6 @@ class VQE:
             self, 
             hamiltonian: HermitianOp,
             ansatz: Ansatz,
-            num_electrons: int = 1,
             optimizer_type: str = 'Adam'
         ):
 
@@ -17,16 +16,21 @@ class VQE:
         
         self.hamiltonian = hamiltonian
         self.ansatz = ansatz
-        self.num_electrons = num_electrons
         self.num_qubits = hamiltonian.num_spin_orbitals
 
         shape = ansatz.coefficients.shape[:-1]
         self.angles = torch.rand(shape, dtype=torch.float64, requires_grad=True)
 
         if ansatz.init_state is None:
-            hf_state = get_HF_state(self.num_qubits, num_electrons=num_electrons)
-            shape = ansatz.coefficients.shape[:-2]
-            ansatz.init_state = hf_state.repeat(shape, 1)
+            init_state = torch.zeros(
+                self.num_qubits + 1,
+                1 << self.num_qubits,
+                dtype=torch.complex128,
+                device=ansatz.device
+            )
+            init_indices = (1 << torch.arange(self.num_qubits+1)) - 1
+            init_state[torch.arange(self.num_qubits+1), init_indices] = 1.0
+            self.ansatz.init_state = init_state
 
         if optimizer_type == 'Adam':
             self.optimizer = torch.optim.Adam([self.angles])
@@ -46,12 +50,11 @@ class VQE:
 
     def compute_energy(self):
 
-        propagator = self.ansatz.get_propagator(self.angles)
-        ground_state = torch.einsum('...ij,...j->...i', propagator, self.ansatz.init_state)
-        self.energy = torch.einsum(
-            '...i,...ij,...j->...', 
-            ground_state.conj(), self.H, ground_state
-        ).real
+        ground_state = self.ansatz.ground_state(angles=self.angles)
+        self.energy = (
+            ground_state[..., None].conj() * self.H[..., None, :, :] * ground_state[..., None, :]
+        ).sum(dim=(-1, -2)).real.min(dim=-1).values
+        self.ground_state = ground_state
 
     def closure(self):
 
@@ -76,8 +79,3 @@ class VQE:
                 print(f'Energy: {self.loss.item()}, Ediff: {ediff.item()}')
             if ediff < etol:
                 break
-
-        self.propagator = self.ansatz.get_propagator(self.angles)
-        self.ground_state = torch.einsum(
-            '...ij,...j->...i', self.propagator, self.ansatz.init_state
-        )
