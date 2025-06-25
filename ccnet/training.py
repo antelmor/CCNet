@@ -21,6 +21,7 @@ class BasicTraining:
             pool_size=5,
             width=64,
             depth=4,
+            k_param=1e+4,
             smooth_solver=True,
             normalized_solver=False
         ):
@@ -31,7 +32,8 @@ class BasicTraining:
             raise ValueError("You must provide the solver or the number of states.")
         elif solver is None:
             solver = Solver(
-                num_states=num_states, 
+                num_states=num_states,
+                k_param=k_param,
                 pool_size=pool_size, 
                 width=width, 
                 depth=depth,

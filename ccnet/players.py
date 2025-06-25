@@ -72,12 +72,18 @@ class Proposer(Player):
 
 class Solver(Player):
 
-    def __init__(self, pool_size=5, **kwargs):
+    def __init__(self, pool_size=5, k_param=1e+4, **kwargs):
         super(Solver, self).__init__(**kwargs)
         
+        self.k = k_param
         self.pool_size = pool_size
         width = kwargs.pop('width', 64)
         self.head = nn.Linear(width, pool_size*(self.size + 1))
+
+    def discretize(self, x):
+        x = x - x.max(dim=-1, keepdim=True)[0]
+
+        return heaviside(x, k=self.k)
 
     def forward(self, x):
         
@@ -85,21 +91,16 @@ class Solver(Player):
         x = self.head(x).reshape(-1, self.pool_size, self.size+1)
         factor = x[..., -1]
         coefficients = x[..., :-1]
-        coefficients = nn.functional.softmax(coefficients / 0.01, dim=-1)
+        coefficients = self.discretize(coefficients)
 
         return factor[..., None] * coefficients
 
-    def update_ansatz(self, inputs, ansatz, discretize=False):
+    def update_ansatz(self, inputs, ansatz):
         
         coeffs = self.forward(inputs)
-        if discretize:
-            with torch.no_grad():
-                coeffs -= coeffs.max(dim=-1, keepdim=True)[0]
-                coeffs = torch.heaviside(coeffs, torch.tensor(1.0, dtype=coeffs.dtype))
-
         ansatz.update_from_flat_coefficients(coeffs)
 
-    def generate_ansatz(self, inputs, discretize=False):
+    def generate_ansatz(self, inputs):
 
         ansatz = Ansatz(
                 self.num_states, 
@@ -117,7 +118,7 @@ class Solver(Player):
         init_state[torch.arange(self.num_states+1), init_indices] = 1.0
         ansatz.init_state = init_state
         
-        self.update_ansatz(inputs, ansatz, discretize=discretize)
+        self.update_ansatz(inputs, ansatz)
 
         return ansatz
 
