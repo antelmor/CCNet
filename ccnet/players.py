@@ -88,12 +88,17 @@ class Solver(Player):
 
         return factor[..., None] * coefficients
 
-    def update_ansatz(self, inputs, ansatz):
+    def update_ansatz(self, inputs, ansatz, discretize=False):
         
         coeffs = self.forward(inputs)
+        if discretize:
+            with torch.no_grad():
+                coeffs -= coeffs.max(dim=-1, keepdim=True)[0]
+                coeffs = torch.heaviside(coeffs, torch.tensor(1.0, dtype=coeffs.dtype))
+
         ansatz.update_from_flat_coefficients(coeffs)
 
-    def generate_ansatz(self, inputs):
+    def generate_ansatz(self, inputs, discretize=False):
 
         ansatz = Ansatz(
                 self.num_states, 
@@ -111,11 +116,11 @@ class Solver(Player):
         init_state[torch.arange(self.num_states+1), init_indices] = 1.0
         ansatz.init_state = init_state
         
-        self.update_ansatz(inputs, ansatz)
+        self.update_ansatz(inputs, ansatz, discretize=discretize)
 
         return ansatz
 
-    def solve(self, hamiltonian):
+    def assemble_vqe(self, hamiltonian, **options):
 
         if hamiltonian.num_spin_orbitals != self.num_states:
             raise ValueError(
@@ -126,20 +131,7 @@ class Solver(Player):
         coefficients = hamiltonian.coefficients
         inputs = torch.concatenate([coefficients.real, coefficients.imag[:, ir:]], dim=1)
         
-        H = hamiltonian.to_tensor()
-        ansatz = self.generate_ansatz(inputs)
-
-        uccsd_state = torch.zeros(
-                *ansatz.coefficients.shape[:-3], 
-                self.num_states, 
-                1 << self.num_states, 
-                dtype=torch.complex128
-        )
-        uccsd_state[..., -1, -1] = 1.0
-
-        uccsd_state[..., :-1, :] = ansatz.ground_state()
-        uccsd_energy = (
-            uccsd_state[..., None].conj() * H[..., None, :, :] * uccsd_state[..., None, :]
-        ).sum(dim=(-1, -2)).real
-
-        return uccsd_energy, uccsd_state
+        ansatz = self.generate_ansatz(inputs, discretize=True)
+        ansatz.init_state.requires_grad = True
+        
+        return VQE(hamiltonian, ansatz, **options)
