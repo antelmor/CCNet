@@ -19,7 +19,7 @@ class VQE:
         self.num_qubits = hamiltonian.num_spin_orbitals
 
         shape = ansatz.coefficients.shape[:-1]
-        self.angles = torch.rand(
+        self.angles = torch.ones(
                 shape, dtype=torch.float64, requires_grad=True, device=self.ansatz.device
         )
 
