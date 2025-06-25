@@ -85,6 +85,7 @@ class Solver(Player):
         x = self.head(x).reshape(-1, self.pool_size, self.size+1)
         factor = x[..., -1]
         coefficients = x[..., :-1]
+        coefficients = nn.functional.softmax(coefficients / 0.01, dim=-1)
 
         return factor[..., None] * coefficients
 
