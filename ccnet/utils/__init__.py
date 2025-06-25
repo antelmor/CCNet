@@ -4,4 +4,5 @@ from .functions import Heaviside
 from .residuals import ResidualBlock
 from .smu import SMU
 
-heaviside = Heaviside.apply
+def heaviside(x, k=10.0):
+    return Heaviside.apply(x, k)

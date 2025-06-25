@@ -3,20 +3,19 @@ import torch
 class Heaviside(torch.autograd.Function):
 
     @staticmethod
-    def forward(ctx, tensor):
+    def forward(ctx, tensor, k=100.0):
 
-        indices = torch.where(tensor >= 0.0)
-        ctx.indices = indices
-        output = torch.zeros(tensor.shape, dtype=tensor.dtype)
-        output[indices] = 1
+        ctx.k = k
+        ctx.save_for_backward(tensor)
 
-        return output
+        return (tensor >= 0.0).to(tensor.dtype)
 
     @staticmethod
     def backward(ctx, grad_output):
 
-        indices = ctx.indices
-        grad_input = torch.zeros(grad_output.shape, dtype=grad_output.dtype) + 0.001
-        grad_input[indices] = 1e+6
+        k = ctx.k
+        tensor, = ctx.saved_tensors
+        sig = torch.sigmoid(k * tensor)
+        grad_input = grad_output * k * sig * (1 - sig) 
 
-        return grad_input * grad_output
+        return grad_input, None
