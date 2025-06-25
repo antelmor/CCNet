@@ -133,7 +133,7 @@ class Solver(Player):
         coefficients = hamiltonian.coefficients
         inputs = torch.concatenate([coefficients.real, coefficients.imag[:, ir:]], dim=1)
         
-        ansatz = self.generate_ansatz(inputs, discretize=True)
+        ansatz = self.generate_ansatz(inputs)
         ansatz.init_state.requires_grad = True
         
         return VQE(hamiltonian, ansatz, **options)
